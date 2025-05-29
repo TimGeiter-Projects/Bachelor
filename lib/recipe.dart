@@ -22,12 +22,14 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   Set<String> _requiredIngredients = {};
   bool _showRecipes = false;
   bool _hasIngredients = false;
+  bool _autoExpandIngredients = true; // Steuert nur die Server-seitige Ergänzung
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadInventory();
+    _loadSettings();
   }
 
   @override
@@ -47,6 +49,20 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _loadInventory();
+  }
+
+  // Einstellungen laden
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _autoExpandIngredients = prefs.getBool('auto_expand_ingredients') ?? true;
+    });
+  }
+
+  // Einstellungen speichern
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_expand_ingredients', _autoExpandIngredients);
   }
 
   Future<void> _loadInventory() async {
@@ -114,10 +130,14 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       ..._othersMap.keys
     };
 
-    final url = 'http://192.168.88.221:5000/generate_recipe';
-    final payload = {
+    final url = 'http://192.168.88.215:8000/generate_recipe';
+    final payload = _autoExpandIngredients ? {
       'required_ingredients': required,
       'available_ingredients': allAvailable.toList()
+    } : {
+      'required_ingredients': required,
+      'available_ingredients': [], // Keine automatische Ergänzung
+      'max_ingredients': required.length // Nur die ausgewählten Zutaten verwenden
     };
 
     try {
@@ -176,7 +196,15 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     });
   }
 
-  // Neue Funktion: Zeigt Dialog zur Anpassung der verwendeten Zutaten
+  // Auto-Ergänzung umschalten
+  void _toggleAutoExpand() {
+    setState(() {
+      _autoExpandIngredients = !_autoExpandIngredients;
+    });
+    _saveSettings();
+  }
+
+  // Zeigt Dialog zur Anpassung der verwendeten Zutaten
   Future<void> _showIngredientDeductionDialog() async {
     if (_recipeData['used_ingredients'] == null) return;
 
@@ -327,7 +355,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // Neue Funktion: Zieht Zutaten vom Inventar ab
+  // Zieht Zutaten vom Inventar ab
   Future<void> _deductIngredientsFromInventory(Map<String, int> deductions) async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -510,7 +538,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
             const SizedBox(height: 24),
           ],
 
-          // Neuer breiter Button zum Abziehen der Zutaten
+          // Button zum Abziehen der Zutaten
           if (_recipeData['used_ingredients'] != null && (_recipeData['used_ingredients'] as List).isNotEmpty)
             SizedBox(
               width: double.infinity,
@@ -605,9 +633,94 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Auto-Ergänzung Toggle Card
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _autoExpandIngredients ? Icons.smart_toy : Icons.apps,
+                        color: _autoExpandIngredients ? Colors.blue : Colors.grey,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Automatisch ergänzen',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: _autoExpandIngredients ? Colors.blue : Colors.grey[700],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _autoExpandIngredients
+                                  ? 'KI ergänzt automatisch passende Zutaten (empfohlen)'
+                                  : 'Nur ausgewählte Zutaten verwenden',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: _autoExpandIngredients,
+                        onChanged: (value) => _toggleAutoExpand(),
+                        activeColor: Colors.blue,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Hinweis zur Rezeptqualität
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue[200]!),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Tipp: Rezepte mit 4-7 Zutaten haben meist die beste Qualität',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.blue[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Zutatenauswahl Header
           Text(
-              "Wähle Zutaten aus, die im Rezept vorkommen müssen (${_requiredIngredients.length})"),
+            "Zutaten auswählen (${_requiredIngredients.length})",
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 8),
+
           if (_requiredIngredients.isNotEmpty)
             TextButton.icon(
               onPressed: () {
@@ -616,6 +729,35 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
               icon: const Icon(Icons.clear),
               label: const Text("Alle zurücksetzen"),
             ),
+
+          if (_requiredIngredients.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Bitte wählen Sie mindestens eine Zutat aus',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 16),
+
+          // Zutaten-Kategorien
           Expanded(
             child: SingleChildScrollView(
               child: Column(
@@ -629,14 +771,16 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
               ),
             ),
           ),
+
           const SizedBox(height: 12),
           Center(
             child: ElevatedButton.icon(
-              onPressed: _generateRecipe,
+              onPressed: _requiredIngredients.isNotEmpty ? _generateRecipe : null,
               icon: const Icon(Icons.restaurant),
               label: const Text("Rezept generieren"),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                backgroundColor: _requiredIngredients.isNotEmpty ? null : Colors.grey[300],
               ),
             ),
           )
@@ -672,6 +816,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
               runSpacing: 8,
               children: map.keys.map((ingredient) {
                 final selected = _requiredIngredients.contains(ingredient);
+
                 return FilterChip(
                   label: Text(ingredient),
                   selected: selected,

@@ -202,3 +202,5 @@ String getCategoryForIngredient(String ingredient) {
   // Wenn in keiner der spezifischen Kategorien gefunden
   return "Others";
 }
+
+//Hallo test
