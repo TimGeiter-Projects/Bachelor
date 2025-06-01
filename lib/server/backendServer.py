@@ -3,6 +3,7 @@ from transformers import FlaxAutoModelForSeq2SeqLM, AutoTokenizer
 from transformers import AutoModel
 import torch
 import numpy as np
+import random
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -166,86 +167,134 @@ def target_postprocessing(texts, special_tokens):
 
     return new_texts
 
-def generate_recipe_with_t5(ingredients_list):
+def validate_recipe_ingredients(recipe_ingredients, expected_ingredients, tolerance=0):
     """
-    Generates a recipe using the T5 recipe generation model.
+    Validates if the recipe contains approximately the expected ingredients.
+    
+    Args:
+        recipe_ingredients (list): Ingredients from generated recipe
+        expected_ingredients (list): Expected ingredients
+        tolerance (int): Allowed difference in ingredient count
+        
+    Returns:
+        bool: True if recipe is valid, False otherwise
+    """
+    # Count non-empty ingredients
+    recipe_count = len([ing for ing in recipe_ingredients if ing and ing.strip()])
+    expected_count = len(expected_ingredients)
+    
+    # Check if ingredient count is within tolerance
+    return abs(recipe_count - expected_count) == tolerance
+
+def generate_recipe_with_t5(ingredients_list, max_retries=5):
+    """
+    Generates a recipe using the T5 recipe generation model with validation.
     
     Args:
         ingredients_list (list): List of ingredients
+        max_retries (int): Maximum number of retry attempts
         
     Returns:
         dict: A dictionary with title, ingredients, and directions
     """
-    try:
-        # Format ingredients as a comma-separated string
-        ingredients_string = ", ".join(ingredients_list)
-        prefix = "items: "
-        
-        # Generation settings
-        generation_kwargs = {
-            "max_length": 512,
-            "min_length": 64,
-            "do_sample": True,
-            "top_k": 60,
-            "top_p": 0.95
-        }
-        print(prefix + ingredients_string)
-        # Tokenize input
-        inputs = t5_tokenizer(
-            prefix + ingredients_string,
-            max_length=256,
-            padding="max_length",
-            truncation=True,
-            return_tensors="jax"
-        )
-        
-        # Generate text
-        output_ids = t5_model.generate(
-            input_ids=inputs.input_ids,
-            attention_mask=inputs.attention_mask,
-            **generation_kwargs
-        )
-        
-        # Decode and post-process
-        generated = output_ids.sequences
-        generated_text = target_postprocessing(
-            t5_tokenizer.batch_decode(generated, skip_special_tokens=False),
-            special_tokens
-        )[0]
-        
-        # Parse sections
-        recipe = {}
-        sections = generated_text.split("\n")
-        for section in sections:
-            section = section.strip()
-            if section.startswith("title:"):
-                recipe["title"] = section.replace("title:", "").strip().capitalize()
-            elif section.startswith("ingredients:"):
-                ingredients_text = section.replace("ingredients:", "").strip()
-                recipe["ingredients"] = [item.strip().capitalize() for item in ingredients_text.split("--")]
-            elif section.startswith("directions:"):
-                directions_text = section.replace("directions:", "").strip()
-                recipe["directions"] = [step.strip().capitalize() for step in directions_text.split("--")]
-        
-        # If title is missing, create one
-        if "title" not in recipe:
-            recipe["title"] = f"Recipe with {', '.join(ingredients_list[:3])}"
+    original_ingredients = ingredients_list.copy()
+    
+    for attempt in range(max_retries):
+        try:
+            # For retries after the first attempt, shuffle the ingredients
+            if attempt > 0:
+                current_ingredients = original_ingredients.copy()
+                random.shuffle(current_ingredients)
+                print(f"Retry {attempt}: Shuffling ingredients order")
+            else:
+                current_ingredients = ingredients_list
             
-        # Ensure all sections exist
-        if "ingredients" not in recipe:
-            recipe["ingredients"] = ingredients_list
-        if "directions" not in recipe:
-            recipe["directions"] = ["No directions generated"]
+            # Format ingredients as a comma-separated string
+            ingredients_string = ", ".join(current_ingredients)
+            prefix = "items: "
             
-        return recipe
-        
-    except Exception as e:
-        print(f"Error in recipe generation: {str(e)}")
-        return {
-            "title": f"Recipe with {ingredients_list[0] if ingredients_list else 'ingredients'}",
-            "ingredients": ingredients_list,
-            "directions": ["Error generating recipe instructions"]
-        }
+            # Generation settings
+            generation_kwargs = {
+                "max_length": 512,
+                "min_length": 64,
+                "do_sample": True,
+                "top_k": 60,
+                "top_p": 0.95
+            }
+            print(f"Attempt {attempt + 1}: {prefix + ingredients_string}")
+            
+            # Tokenize input
+            inputs = t5_tokenizer(
+                prefix + ingredients_string,
+                max_length=256,
+                padding="max_length",
+                truncation=True,
+                return_tensors="jax"
+            )
+            
+            # Generate text
+            output_ids = t5_model.generate(
+                input_ids=inputs.input_ids,
+                attention_mask=inputs.attention_mask,
+                **generation_kwargs
+            )
+            
+            # Decode and post-process
+            generated = output_ids.sequences
+            generated_text = target_postprocessing(
+                t5_tokenizer.batch_decode(generated, skip_special_tokens=False),
+                special_tokens
+            )[0]
+            
+            # Parse sections
+            recipe = {}
+            sections = generated_text.split("\n")
+            for section in sections:
+                section = section.strip()
+                if section.startswith("title:"):
+                    recipe["title"] = section.replace("title:", "").strip().capitalize()
+                elif section.startswith("ingredients:"):
+                    ingredients_text = section.replace("ingredients:", "").strip()
+                    recipe["ingredients"] = [item.strip().capitalize() for item in ingredients_text.split("--") if item.strip()]
+                elif section.startswith("directions:"):
+                    directions_text = section.replace("directions:", "").strip()
+                    recipe["directions"] = [step.strip().capitalize() for step in directions_text.split("--") if step.strip()]
+            
+            # If title is missing, create one
+            if "title" not in recipe:
+                recipe["title"] = f"Recipe with {', '.join(current_ingredients[:3])}"
+                
+            # Ensure all sections exist
+            if "ingredients" not in recipe:
+                recipe["ingredients"] = current_ingredients
+            if "directions" not in recipe:
+                recipe["directions"] = ["No directions generated"]
+            
+            # Validate the recipe
+            if validate_recipe_ingredients(recipe["ingredients"], original_ingredients):
+                print(f"Success on attempt {attempt + 1}: Recipe has correct number of ingredients")
+                return recipe
+            else:
+                print(f"Attempt {attempt + 1} failed: Expected {len(original_ingredients)} ingredients, got {len(recipe['ingredients'])}")
+                if attempt == max_retries - 1:
+                    print("Max retries reached, returning last generated recipe")
+                    return recipe
+                    
+        except Exception as e:
+            print(f"Error in recipe generation attempt {attempt + 1}: {str(e)}")
+            if attempt == max_retries - 1:
+                return {
+                    "title": f"Recipe with {original_ingredients[0] if original_ingredients else 'ingredients'}",
+                    "ingredients": original_ingredients,
+                    "directions": ["Error generating recipe instructions"]
+                }
+    
+    # Fallback (should not be reached)
+    return {
+        "title": f"Recipe with {original_ingredients[0] if original_ingredients else 'ingredients'}",
+        "ingredients": original_ingredients,
+        "directions": ["Error generating recipe instructions"]
+    }
 
 @app.route('/generate_recipe', methods=['POST'])
 def handle_recipe_request():
@@ -269,6 +318,9 @@ def handle_recipe_request():
     # Maximum number of ingredients (for better recipes)
     max_ingredients = data.get('max_ingredients', 7)
     
+    # Maximum retries for recipe generation
+    max_retries = data.get('max_retries', 5)
+    
     # If no ingredients specified
     if not required_ingredients and not available_ingredients:
         return jsonify({"error": "No ingredients provided"}), 400
@@ -281,8 +333,8 @@ def handle_recipe_request():
             max_ingredients
         )
         
-        # Generate recipe with optimized ingredients using T5 model
-        recipe = generate_recipe_with_t5(optimized_ingredients)
+        # Generate recipe with optimized ingredients using T5 model with validation
+        recipe = generate_recipe_with_t5(optimized_ingredients, max_retries)
         
         # Format for Flutter app consumption - structured format
         return jsonify({

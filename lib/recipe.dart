@@ -22,7 +22,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   Set<String> _requiredIngredients = {};
   bool _showRecipes = false;
   bool _hasIngredients = false;
-  bool _autoExpandIngredients = true; // Steuert nur die Server-seitige Ergänzung
+  bool _autoExpandIngredients = true;
 
   @override
   void initState() {
@@ -51,7 +51,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     _loadInventory();
   }
 
-  // Einstellungen laden
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -59,7 +58,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     });
   }
 
-  // Einstellungen speichern
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_expand_ingredients', _autoExpandIngredients);
@@ -106,12 +104,10 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   }
 
   void _generateRecipe() {
-    if (_hasIngredients) {
-      _fetchRecipe();
-      setState(() {
-        _showRecipes = true;
-      });
-    }
+    _fetchRecipe();
+    setState(() {
+      _showRecipes = true;
+    });
   }
 
   Future<void> _fetchRecipe() async {
@@ -130,14 +126,14 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       ..._othersMap.keys
     };
 
-    final url = 'http://192.168.88.215:8000/generate_recipe';
+    final url = 'http://192.168.0.132:8000/generate_recipe';
     final payload = _autoExpandIngredients ? {
       'required_ingredients': required,
       'available_ingredients': allAvailable.toList()
     } : {
       'required_ingredients': required,
-      'available_ingredients': [], // Keine automatische Ergänzung
-      'max_ingredients': required.length // Nur die ausgewählten Zutaten verwenden
+      'available_ingredients': [],
+      'max_ingredients': required.isNotEmpty ? required.length : 5
     };
 
     try {
@@ -159,18 +155,18 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       } else {
         setState(() {
           _recipeData = {
-            'title': 'Fehler',
-            'ingredients': ['Serverfehler: ${response.statusCode}'],
-            'directions': ['Bitte versuche es später noch einmal.']
+            'title': 'Error',
+            'ingredients': ['Server error: ${response.statusCode}'],
+            'directions': ['Please try again later.']
           };
         });
       }
     } catch (e) {
       setState(() {
         _recipeData = {
-          'title': 'Verbindungsfehler',
-          'ingredients': ['Fehler: ${e.toString()}'],
-          'directions': ['Prüfe deine Internetverbindung und versuche es erneut.']
+          'title': 'Connection Error',
+          'ingredients': ['Error: ${e.toString()}'],
+          'directions': ['Check your internet connection and try again.']
         };
       });
     } finally {
@@ -196,7 +192,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     });
   }
 
-  // Auto-Ergänzung umschalten
   void _toggleAutoExpand() {
     setState(() {
       _autoExpandIngredients = !_autoExpandIngredients;
@@ -204,7 +199,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     _saveSettings();
   }
 
-  // Zeigt Dialog zur Anpassung der verwendeten Zutaten
   Future<void> _showIngredientDeductionDialog() async {
     if (_recipeData['used_ingredients'] == null) return;
 
@@ -212,7 +206,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     Map<String, int> deductionAmounts = {};
     Map<String, String> ingredientCategories = {};
 
-    // Initialisiere Abzugsmengen basierend auf vorhandenen Zutaten
     for (String ingredient in usedIngredients) {
       String? category = _findIngredientCategory(ingredient);
       if (category != null) {
@@ -228,7 +221,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Zutaten aus Inventar abziehen'),
+              title: const Text('Deduct Ingredients from Inventory'),
               content: SizedBox(
                 width: double.maxFinite,
                 child: SingleChildScrollView(
@@ -236,7 +229,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        'Passen Sie die Mengen an, die aus Ihrem Inventar abgezogen werden sollen:',
+                        'Adjust the amounts to be deducted from your inventory:',
                         style: TextStyle(fontSize: 14),
                       ),
                       const SizedBox(height: 16),
@@ -259,8 +252,8 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
                                 const SizedBox(height: 4),
                                 Text(
                                   available > 0
-                                      ? 'Verfügbar: $available'
-                                      : 'Nicht im Inventar',
+                                      ? 'Available: $available'
+                                      : 'Not in inventory',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: available > 0 ? Colors.green : Colors.red,
@@ -270,7 +263,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
                                   const SizedBox(height: 8),
                                   Row(
                                     children: [
-                                      const Text('Abziehen: '),
+                                      const Text('Deduct: '),
                                       IconButton(
                                         onPressed: currentDeduction > 0
                                             ? () {
@@ -312,11 +305,11 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Abbrechen'),
+                  child: const Text('Cancel'),
                 ),
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(deductionAmounts),
-                  child: const Text('Abziehen'),
+                  child: const Text('Deduct'),
                 ),
               ],
             );
@@ -330,7 +323,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // Hilfsfunktion: Findet die Kategorie einer Zutat
   String? _findIngredientCategory(String ingredient) {
     if (_vegetablesMap.containsKey(ingredient)) return 'Vegetables';
     if (_mainIngredientsMap.containsKey(ingredient)) return 'Main Ingredients';
@@ -339,7 +331,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     return null;
   }
 
-  // Hilfsfunktion: Holt die verfügbare Menge einer Zutat
   int _getIngredientAmount(String ingredient, String category) {
     switch (category) {
       case 'Vegetables':
@@ -355,17 +346,14 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // Zieht Zutaten vom Inventar ab
   Future<void> _deductIngredientsFromInventory(Map<String, int> deductions) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Kopien der aktuellen Maps erstellen
     Map<String, int> newVegetables = Map.from(_vegetablesMap);
     Map<String, int> newMainIngredients = Map.from(_mainIngredientsMap);
     Map<String, int> newSpices = Map.from(_spicesMap);
     Map<String, int> newOthers = Map.from(_othersMap);
 
-    // Deduktionen anwenden
     for (String ingredient in deductions.keys) {
       int amount = deductions[ingredient] ?? 0;
       if (amount <= 0) continue;
@@ -413,20 +401,17 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       }
     }
 
-    // Speichere die aktualisierten Maps
     await prefs.setString('Vegetables', jsonEncode(newVegetables));
     await prefs.setString('Main Ingredients', jsonEncode(newMainIngredients));
     await prefs.setString('Spices', jsonEncode(newSpices));
     await prefs.setString('Others', jsonEncode(newOthers));
 
-    // Lade das Inventar neu
     await _loadInventory();
 
-    // Zeige Bestätigung
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Zutaten wurden erfolgreich vom Inventar abgezogen!'),
+          content: Text('Ingredients successfully deducted from inventory!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -442,18 +427,22 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     });
     return Scaffold(
       appBar: AppBar(
-        title: Text(_showRecipes ? 'Rezept Generator' : 'Zutaten auswählen'),
+        title: const Text('Generate Recipe'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
         actions: [
           if (_showRecipes)
             IconButton(
               icon: const Icon(Icons.food_bank),
-              tooltip: 'Zutaten auswählen',
+              tooltip: 'Select Ingredients',
               onPressed: _toggleView,
             ),
           if (_showRecipes)
             IconButton(
               icon: const Icon(Icons.refresh),
-              tooltip: 'Neues Rezept generieren',
+              tooltip: 'Generate New Recipe',
               onPressed: _generateRecipe,
             ),
         ],
@@ -464,7 +453,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
 
   Widget _buildRecipeView() {
     if (!_hasIngredients) {
-      return const Center(child: Text("Keine Zutaten im Inventar."));
+      return const Center(child: Text("No ingredients in inventory."));
     }
 
     if (_isLoading) {
@@ -474,14 +463,14 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text("Rezept wird generiert..."),
+            Text("Generating recipe..."),
           ],
         ),
       );
     }
 
     if (_recipeData.isEmpty) {
-      return const Center(child: Text("Noch kein Rezept generiert."));
+      return const Center(child: Text("No recipe generated yet."));
     }
 
     return SingleChildScrollView(
@@ -489,18 +478,16 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Recipe title
           Text(
-            _recipeData['title'] ?? 'Rezept',
+            _recipeData['title'] ?? 'Recipe',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 24),
 
-          // Ingredients section
           const Text(
-            "ZUTATEN",
+            "INGREDIENTS",
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -512,9 +499,8 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
           _buildIngredientsList(_recipeData['ingredients'] ?? []),
           const SizedBox(height: 24),
 
-          // Directions section
           const Text(
-            "ZUBEREITUNG",
+            "INSTRUCTIONS",
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -526,10 +512,9 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
           _buildDirectionsList(_recipeData['directions'] ?? []),
 
           const SizedBox(height: 24),
-          // Used ingredients section
           if (_recipeData['used_ingredients'] != null) ...[
             Text(
-              "Verwendete Zutaten: ${(_recipeData['used_ingredients'] as List).join(', ')}",
+              "Used ingredients: ${(_recipeData['used_ingredients'] as List).join(', ')}",
               style: const TextStyle(
                 fontStyle: FontStyle.italic,
                 color: Colors.grey,
@@ -538,7 +523,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
             const SizedBox(height: 24),
           ],
 
-          // Button zum Abziehen der Zutaten
           if (_recipeData['used_ingredients'] != null && (_recipeData['used_ingredients'] as List).isNotEmpty)
             SizedBox(
               width: double.infinity,
@@ -546,7 +530,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
                 onPressed: _showIngredientDeductionDialog,
                 icon: const Icon(Icons.remove_shopping_cart),
                 label: const Text(
-                  'Verwendete Zutaten vom Inventar abziehen',
+                  'Deduct Used Ingredients from Inventory',
                   style: TextStyle(fontSize: 16),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -625,59 +609,55 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
 
   Widget _buildIngredientSelector() {
     if (!_hasIngredients) {
-      return const Center(child: Text("Keine Zutaten im Inventar."));
+      return const Center(child: Text("No ingredients in inventory."));
     }
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Auto-Ergänzung Toggle Card
+          // Auto-expand toggle card
           Card(
             elevation: 4,
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        _autoExpandIngredients ? Icons.smart_toy : Icons.apps,
-                        color: _autoExpandIngredients ? Colors.blue : Colors.grey,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Automatisch ergänzen',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: _autoExpandIngredients ? Colors.blue : Colors.grey[700],
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _autoExpandIngredients
-                                  ? 'KI ergänzt automatisch passende Zutaten (empfohlen)'
-                                  : 'Nur ausgewählte Zutaten verwenden',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
+                  Icon(
+                    _autoExpandIngredients ? Icons.smart_toy : Icons.apps,
+                    color: _autoExpandIngredients ? Colors.blue : Colors.grey,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Auto expand',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: _autoExpandIngredients ? Colors.blue : Colors.grey[700],
+                          ),
                         ),
-                      ),
-                      Switch(
-                        value: _autoExpandIngredients,
-                        onChanged: (value) => _toggleAutoExpand(),
-                        activeColor: Colors.blue,
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          _autoExpandIngredients
+                              ? 'automatically adds matching ingredients (recommended)'
+                              : 'Use only selected ingredients',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: _autoExpandIngredients,
+                    onChanged: (value) => _toggleAutoExpand(),
+                    activeColor: Colors.blue,
                   ),
                 ],
               ),
@@ -685,105 +665,57 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 16),
 
-          // Hinweis zur Rezeptqualität
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue[200]!),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Tipp: Rezepte mit 4-7 Zutaten haben meist die beste Qualität',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.blue[700],
-                    ),
-                  ),
-                ),
-              ],
+          // Generate Recipe Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _generateRecipe,
+              icon: const Icon(Icons.restaurant),
+              label: const Text(
+                "Generate Recipe",
+                style: TextStyle(fontSize: 16),
+              ),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
 
-          // Zutatenauswahl Header
-          Text(
-            "Zutaten auswählen (${_requiredIngredients.length})",
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+          // Ingredient selection header
+          Row(
+            children: [
+              Text(
+                "Select ingredients (${_requiredIngredients.length})",
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              if (_requiredIngredients.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() => _requiredIngredients.clear());
+                  },
+                  icon: const Icon(Icons.clear, size: 18),
+                  label: const Text("Reset"),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 8),
 
-          if (_requiredIngredients.isNotEmpty)
-            TextButton.icon(
-              onPressed: () {
-                setState(() => _requiredIngredients.clear());
-              },
-              icon: const Icon(Icons.clear),
-              label: const Text("Alle zurücksetzen"),
-            ),
-
-          if (_requiredIngredients.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange[200]!),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber, color: Colors.orange[700], size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Bitte wählen Sie mindestens eine Zutat aus',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.orange[700],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          const SizedBox(height: 16),
-
-          // Zutaten-Kategorien
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildIngredientCategory("Hauptzutaten", _mainIngredientsMap),
-                  _buildIngredientCategory("Gemüse", _vegetablesMap),
-                  _buildIngredientCategory("Gewürze", _spicesMap),
-                  _buildIngredientCategory("Sonstiges", _othersMap),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 12),
-          Center(
-            child: ElevatedButton.icon(
-              onPressed: _requiredIngredients.isNotEmpty ? _generateRecipe : null,
-              icon: const Icon(Icons.restaurant),
-              label: const Text("Rezept generieren"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                backgroundColor: _requiredIngredients.isNotEmpty ? null : Colors.grey[300],
-              ),
-            ),
-          )
+          // Ingredient categories
+          _buildIngredientCategory("Main Ingredients", _mainIngredientsMap),
+          _buildIngredientCategory("Vegetables", _vegetablesMap),
+          _buildIngredientCategory("Spices", _spicesMap),
+          _buildIngredientCategory("Others", _othersMap),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -808,28 +740,24 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
           const Divider(),
           const SizedBox(height: 8),
 
-          Align(
-            alignment: Alignment.topLeft,
-            child: Wrap(
-              alignment: WrapAlignment.start,
-              spacing: 8,
-              runSpacing: 8,
-              children: map.keys.map((ingredient) {
-                final selected = _requiredIngredients.contains(ingredient);
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: map.keys.map((ingredient) {
+              final selected = _requiredIngredients.contains(ingredient);
 
-                return FilterChip(
-                  label: Text(ingredient),
-                  selected: selected,
-                  onSelected: (_) => _toggleIngredient(ingredient),
-                  selectedColor: Theme.of(context).primaryColor,
-                  checkmarkColor: Colors.white,
-                  labelStyle: TextStyle(
-                    color: selected ? Colors.white : null,
-                    fontWeight: selected ? FontWeight.bold : null,
-                  ),
-                );
-              }).toList(),
-            ),
+              return FilterChip(
+                label: Text(ingredient),
+                selected: selected,
+                onSelected: (_) => _toggleIngredient(ingredient),
+                selectedColor: Theme.of(context).primaryColor,
+                checkmarkColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: selected ? Colors.white : null,
+                  fontWeight: selected ? FontWeight.bold : null,
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),

@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-import 'package:visibility_detector/visibility_detector.dart'; // HIER IMPORTIEREN
-
-import 'ingriedients/ingriedientsData.dart'; // Passe diesen Pfad ggf. an
-import 'scanner.dart'; // Scanner-Implementierung muss vorhanden sein
+import 'package:visibility_detector/visibility_detector.dart';
+import 'ingriedients/zutaten_nur_kategorien_und_namen.dart';
+import 'scanner.dart';
 
 class IngredientsPage extends StatefulWidget {
   const IngredientsPage({super.key});
@@ -21,24 +20,24 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
   Map<String, int> _ingredientCountSpices = {};
   Map<String, int> _ingredientCountOthers = {};
   bool _deleteMode = false;
-  bool _editMode = false; // Neuer Modus für Mengenbearbeitung
+  bool _editMode = false; // New mode for quantity editing
 
-  // Key für den VisibilityDetector
+  // Key for the VisibilityDetector
   final Key _visibilityDetectorKey = const Key('ingredients_page_visibility_detector');
 
   @override
   void initState() {
     super.initState();
-    print("IngredientsPage: initState aufgerufen");
+    print("IngredientsPage: initState called");
     WidgetsBinding.instance.addObserver(this);
-    // _loadIngredients() wird jetzt primär durch VisibilityDetector getriggert,
-    // aber ein initiales Laden kann hier nicht schaden.
+    // _loadIngredients() is now primarily triggered by VisibilityDetector,
+    // but initial loading here doesn't hurt.
     _loadIngredients();
   }
 
   @override
   void dispose() {
-    print("IngredientsPage: dispose aufgerufen");
+    print("IngredientsPage: dispose called");
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
@@ -48,23 +47,21 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      print("IngredientsPage: App in den Vordergrund gekommen (resumed).");
-
+      print("IngredientsPage: App came to foreground (resumed).");
     }
   }
 
-
   Future<void> _loadIngredients() async {
-    print("IngredientsPage: _loadIngredients wird ausgeführt...");
+    print("IngredientsPage: _loadIngredients is being executed...");
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload(); // Sicherstellen, dass wir die neuesten Daten lesen
+    await prefs.reload(); // Ensure we read the latest data
 
     Map<String, int> _decodeMap(String? jsonString) {
       if (jsonString != null) {
         try {
           return Map<String, int>.from(jsonDecode(jsonString));
         } catch (e) {
-          print("IngredientsPage: Fehler beim Dekodieren von '$jsonString': $e");
+          print("IngredientsPage: Error decoding '$jsonString': $e");
         }
       }
       return {};
@@ -97,10 +94,10 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
 
     if (changed && mounted) {
       setState(() {
-        print("IngredientsPage: Inventar geladen und State AKTUALISIERT.");
+        print("IngredientsPage: Inventory loaded and State UPDATED.");
       });
     } else if (mounted && !changed) {
-      print("IngredientsPage: Inventar geladen, aber KEINE ÄNDERUNGEN festgestellt.");
+      print("IngredientsPage: Inventory loaded, but NO CHANGES detected.");
     }
   }
 
@@ -114,7 +111,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     await _encodeAndSet('Main Ingredients', _ingredientCountMain);
     await _encodeAndSet('Spices', _ingredientCountSpices);
     await _encodeAndSet('Others', _ingredientCountOthers);
-    print("IngredientsPage: Inventar gespeichert.");
+    print("IngredientsPage: Inventory saved.");
   }
 
   void _addIngredient() {
@@ -142,7 +139,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('"${ingredient}" zu "$category" hinzugefügt!'),
+          content: Text('"${ingredient}" added to "$category"!'),
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.green[600],
@@ -151,13 +148,13 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bitte eine Zutat eingeben oder auswählen.')),
+          const SnackBar(content: Text('Please enter or select an ingredient.')),
         );
       }
     }
   }
 
-  // Neue Methoden für Mengenbearbeitung
+  // New methods for quantity editing
   void _increaseQuantity(String ingredientKey, String categoryMapKey) {
     if (mounted) {
       setState(() {
@@ -175,9 +172,9 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
         if (targetMap[ingredientKey] != null && targetMap[ingredientKey]! > 1) {
           targetMap.update(ingredientKey, (count) => count - 1);
         } else {
-          // Wenn Menge 1 oder weniger, Element entfernen
+          // If quantity is 1 or less, remove element
           targetMap.remove(ingredientKey);
-          // Bearbeitungsmodus beenden, wenn alle Inventare leer sind
+          // Exit edit mode if all inventories are empty
           if (_editMode && _areAllInventoriesEmpty()) {
             _editMode = false;
           }
@@ -205,12 +202,12 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Zutat löschen'),
-        content: Text('Möchtest du "$displayIngredient" wirklich aus "$category" löschen?'),
+        title: const Text('Delete Ingredient'),
+        content: Text('Do you really want to delete "$displayIngredient" from "$category"?'),
         actions: [
-          TextButton(child: const Text('Abbrechen'), onPressed: () => Navigator.of(context).pop()),
+          TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
           TextButton(
-            child: const Text('Löschen', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
             onPressed: () {
               if (mounted) {
                 setState(() {
@@ -257,7 +254,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Barcode "$barcode" konnte keinem Produkt zugeordnet werden.'),
+            content: Text('Barcode "$barcode" could not be matched to a product.'),
             duration: const Duration(seconds: 3),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Colors.orange[800],
@@ -269,22 +266,22 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
 
   @override
   Widget build(BuildContext context) {
-    print("IngredientsPage: build aufgerufen. _deleteMode: $_deleteMode, _editMode: $_editMode");
-    return VisibilityDetector( // --- HIER VisibilityDetector ---
+    print("IngredientsPage: build called. _deleteMode: $_deleteMode, _editMode: $_editMode");
+    return VisibilityDetector( // --- HERE VisibilityDetector ---
       key: _visibilityDetectorKey,
       onVisibilityChanged: (visibilityInfo) {
-        if (mounted && visibilityInfo.visibleFraction > 0.9) { // Wenn mehr als 90% sichtbar
-          print("IngredientsPage: Seite ist sichtbar geworden (VisibilityDetector). Lade Inventar.");
+        if (mounted && visibilityInfo.visibleFraction > 0.9) { // When more than 90% visible
+          print("IngredientsPage: Page became visible (VisibilityDetector). Loading inventory.");
           _loadIngredients();
         }
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Dein Inventar'),
+          title: const Text('Your Inventory'),
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           actions: [
             if (!_areAllInventoriesEmpty()) ...[
-              // Bearbeitungsmodus-Button (für Mengen ändern)
+              // Edit mode button (for changing quantities)
               IconButton(
                 icon: Icon(
                   _editMode ? Icons.edit_off : Icons.edit,
@@ -294,16 +291,16 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
                   if (mounted) {
                     setState(() {
                       _editMode = !_editMode;
-                      // Wenn Bearbeitungsmodus aktiviert wird, Löschmodus deaktivieren
+                      // When edit mode is activated, deactivate delete mode
                       if (_editMode) {
                         _deleteMode = false;
                       }
                     });
                   }
                 },
-                tooltip: _editMode ? 'Bearbeitungsmodus beenden' : 'Mengen bearbeiten',
+                tooltip: _editMode ? 'Exit edit mode' : 'Edit quantities',
               ),
-              // Löschmodus-Button
+              // Delete mode button
               IconButton(
                 icon: Icon(
                   _deleteMode ? Icons.check_circle_outline : Icons.delete_outline,
@@ -313,14 +310,14 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
                   if (mounted) {
                     setState(() {
                       _deleteMode = !_deleteMode;
-                      // Wenn Löschmodus aktiviert wird, Bearbeitungsmodus deaktivieren
+                      // When delete mode is activated, deactivate edit mode
                       if (_deleteMode) {
                         _editMode = false;
                       }
                     });
                   }
                 },
-                tooltip: _deleteMode ? 'Löschmodus beenden' : 'Löschmodus aktivieren',
+                tooltip: _deleteMode ? 'Exit delete mode' : 'Activate delete mode',
               ),
             ],
           ],
@@ -344,8 +341,8 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
                         FocusScope.of(context).unfocus();
                       },
                       fieldViewBuilder: (context, fieldTextEditingController, focusNode, onFieldSubmitted) {
-                        // Synchronisation von _controller und fieldTextEditingController
-                        // Dies hilft, wenn _controller extern gesetzt wird (z.B. durch Scanner)
+                        // Synchronization of _controller and fieldTextEditingController
+                        // This helps when _controller is set externally (e.g. by scanner)
                         if (_controller.text != fieldTextEditingController.text && !focusNode.hasFocus) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
                             if (mounted) fieldTextEditingController.text = _controller.text;
@@ -355,20 +352,20 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
                           controller: fieldTextEditingController,
                           focusNode: focusNode,
                           decoration: InputDecoration(
-                            labelText: 'Zutat suchen / eingeben',
+                            labelText: 'Search / enter ingredient',
                             suffixIcon: (fieldTextEditingController.text.isNotEmpty)
                                 ? IconButton(
                               icon: const Icon(Icons.clear),
                               onPressed: () {
                                 fieldTextEditingController.clear();
-                                _controller.clear(); // Wichtig: Auch den Hauptcontroller leeren
+                                _controller.clear(); // Important: Also clear the main controller
                                 focusNode.requestFocus();
                               },
                             ) : null,
                             border: const OutlineInputBorder(),
                           ),
                           onChanged: (text){
-                            _controller.text = text; // Halte _controller synchron
+                            _controller.text = text; // Keep _controller synchronized
                           },
                           onSubmitted: (_) => _addIngredient(),
                         );
@@ -378,27 +375,27 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
                   IconButton(
                     icon: const Icon(Icons.qr_code_scanner),
                     onPressed: _scanBarcode,
-                    tooltip: 'Barcode scannen',
+                    tooltip: 'Scan barcode',
                   )
                 ],
               ),
               const SizedBox(height: 10),
               ElevatedButton.icon(
                 icon: const Icon(Icons.add_shopping_cart),
-                label: const Text('Zur Inventarliste hinzufügen'),
+                label: const Text('Add to Inventory'),
                 onPressed: _addIngredient,
                 style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 40)),
               ),
               const SizedBox(height: 20),
               Expanded(
                 child: _areAllInventoriesEmpty()
-                    ? const Center(child: Text('Keine Zutaten im Inventar.\nFüge welche hinzu oder scanne einen Barcode!', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)))
+                    ? const Center(child: Text('No ingredients in inventory.\nAdd some or scan a barcode!', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)))
                     : ListView(
                   children: [
-                    _buildCategoryTile('Gemüse', _ingredientCountVegetables, 'Vegetables'),
-                    _buildCategoryTile('Hauptzutaten', _ingredientCountMain, 'Main Ingredients'),
-                    _buildCategoryTile('Gewürze', _ingredientCountSpices, 'Spices'),
-                    _buildCategoryTile('Sonstiges', _ingredientCountOthers, 'Others'),
+                    _buildCategoryTile('Vegetables', _ingredientCountVegetables, 'Vegetables'),
+                    _buildCategoryTile('Main Ingredients', _ingredientCountMain, 'Main Ingredients'),
+                    _buildCategoryTile('Spices', _ingredientCountSpices, 'Spices'),
+                    _buildCategoryTile('Others', _ingredientCountOthers, 'Others'),
                   ],
                 ),
               ),
@@ -412,19 +409,18 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
   Widget _buildCategoryTile(String title, Map<String, int> ingredientMap, String categoryKey) {
     List<String> sortedKeys = ingredientMap.keys.toList()..sort((a, b) => a.compareTo(b));
     String displayTitle = title.replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}').trim();
-    if (title == "Hauptzutaten") displayTitle = "Hauptzutaten"; // Spezifische Übersetzung
 
     return ExpansionTile(
       title: Text(displayTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
       initiallyExpanded: ingredientMap.isNotEmpty,
       childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest, // Hellere Farbe
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor, // Lighter color
       collapsedBackgroundColor: Theme.of(context).scaffoldBackgroundColor,
       trailing: _deleteMode && ingredientMap.isNotEmpty
-          ? Tooltip(message: "Alle in '$displayTitle' löschen", child: IconButton(icon: Icon(Icons.delete_sweep_outlined, color: Colors.red.shade300), onPressed: () => _confirmDeleteCategory(categoryKey, ingredientMap, displayTitle) ))
+          ? Tooltip(message: "Delete all in '$displayTitle'", child: IconButton(icon: Icon(Icons.delete_sweep_outlined, color: Colors.red.shade300), onPressed: () => _confirmDeleteCategory(categoryKey, ingredientMap, displayTitle) ))
           : null,
       children: sortedKeys.isEmpty
-          ? [const ListTile(dense: true, title: Text('Keine Zutaten in dieser Kategorie.'))]
+          ? [const ListTile(dense: true, title: Text('No ingredients in this category.'))]
           : sortedKeys.map((key) {
         String displayKey = key.length > 1 ? '${key[0].toUpperCase()}${key.substring(1)}' : key.toUpperCase();
         return ListTile(
@@ -447,14 +443,14 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
             icon: Icon(Icons.remove, color: Colors.red.shade600, size: 20),
             onPressed: () => _decreaseQuantity(ingredientKey, categoryKey),
             visualDensity: VisualDensity.compact,
-            tooltip: 'Menge verringern',
+            tooltip: 'Decrease quantity',
           ),
           Text('${quantity}x', style: const TextStyle(fontWeight: FontWeight.bold)),
           IconButton(
             icon: Icon(Icons.add, color: Colors.green.shade600, size: 20),
             onPressed: () => _increaseQuantity(ingredientKey, categoryKey),
             visualDensity: VisualDensity.compact,
-            tooltip: 'Menge erhöhen',
+            tooltip: 'Increase quantity',
           ),
         ],
       );
@@ -479,12 +475,12 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('"$displayCategoryName" leeren?'),
-          content: const Text('Möchtest du wirklich alle Zutaten aus dieser Kategorie löschen?'),
+          title: Text('Clear "$displayCategoryName"?'),
+          content: const Text('Do you really want to delete all ingredients from this category?'),
           actions: <Widget>[
-            TextButton(child: const Text('Abbrechen'), onPressed: () => Navigator.of(context).pop()),
+            TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
             TextButton(
-              child: const Text('Alle löschen', style: TextStyle(color: Colors.red)),
+              child: const Text('Delete All', style: TextStyle(color: Colors.red)),
               onPressed: () {
                 if (mounted) {
                   setState(() {
@@ -511,12 +507,12 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('"$displayIngredient" löschen'),
-        content: Text('Möchtest du "$displayIngredient" wirklich aus "$categoryDisplay" löschen?'),
+        title: Text('Delete "$displayIngredient"'),
+        content: Text('Do you really want to delete "$displayIngredient" from "$categoryDisplay"?'),
         actions: [
-          TextButton(child: const Text('Abbrechen'), onPressed: () => Navigator.of(context).pop()),
+          TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
           TextButton(
-            child: const Text('Löschen', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
             onPressed: () {
               if (mounted) {
                 setState(() {
