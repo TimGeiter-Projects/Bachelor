@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:translator/translator.dart'; // Füge diese Abhängigkeit hinzu
+import 'package:translator/translator.dart';
 
 class BarcodeScanner {
-  static final GoogleTranslator translator = GoogleTranslator(); // Übersetzer-Instanz
+  static final GoogleTranslator translator = GoogleTranslator(); // Übersetzer
 
   static Future<String?> scanBarcode(BuildContext context) async {
-    // Dein existierender scanBarcode-Code bleibt unverändert
     String? scannedCode;
     final scanController = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
@@ -139,7 +138,7 @@ class BarcodeScanner {
           String name = product['product_name'] ?? 'Unknown Product';
 
           try {
-            // Übersetzung versuchen, falls die translator-Abhängigkeit eingebunden ist
+            // Übersetzung versuchen
             var translatedName = await translator.translate(name, from: 'de', to: 'en');
             return translatedName.text;
           } catch (e) {

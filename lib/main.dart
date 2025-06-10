@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'ingriedients.dart'; // Importiert die Inventarseite
-import 'recipe.dart';      // Importiert die Rezeptseite
+import 'ingredients_page.dart';
+import 'recipe_page.dart';
+import 'saved_recipes_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -17,16 +18,12 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      // Startet mit dem MainScreen, der die Navigation enthält
       home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
-//----------------------------------------------------------------------
-// Haupt-Widget, das die BottomNavigationBar und die Seiten verwaltet
-//----------------------------------------------------------------------
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -35,15 +32,22 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0; // Index der aktuell ausgewählten Seite
+  int _selectedIndex = 0;
 
-  // Liste der Widgets (Seiten), die in der Navigation angezeigt werden
-  static final List<Widget> _widgetOptions = <Widget>[
-    const IngredientsPage(), // Index 0: Inventarseite
-    const RecipePage(),      // Index 1: Rezeptseite (Platzhalter oder deine Implementierung)
-  ];
+  // Widgets dynamisch erstellen statt statisch
+  Widget _getPage(int index) {
+    switch (index) {
+      case 0:
+        return IngredientsPage();
+      case 1:
+        return RecipePage();
+      case 2:
+        return SavedRecipesPage();
+      default:
+        return IngredientsPage();
+    }
+  }
 
-  // Funktion, die aufgerufen wird, wenn ein Item in der NavBar getippt wird
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -53,13 +57,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Der Body zeigt das aktuell ausgewählte Widget aus _widgetOptions an
-      // IndexedStack erhält den Zustand der nicht sichtbaren Seiten
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _widgetOptions,
-      ),
-      // Die Bottom Navigation Bar
+      body: _getPage(_selectedIndex), // Direkte Widget-Erstellung
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
@@ -71,6 +69,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.menu_book_outlined),
             activeIcon: Icon(Icons.menu_book),
             label: 'Rezepte',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.favorite_border),
+            activeIcon: Icon(Icons.favorite),
+            label: 'Gespeichert',
           ),
         ],
         currentIndex: _selectedIndex,

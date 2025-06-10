@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:visibility_detector/visibility_detector.dart';
-import 'ingriedients/zutaten_nur_kategorien_und_namen.dart';
-import 'scanner.dart';
+import 'data/zutaten_nur_kategorien_und_namen.dart'; // Stelle sicher, dass dieser Pfad korrekt ist
+import 'Services/scanner.dart'; // Stelle sicher, dass dieser Pfad korrekt ist
 
 class IngredientsPage extends StatefulWidget {
   const IngredientsPage({super.key});
@@ -30,8 +30,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     super.initState();
     print("IngredientsPage: initState called");
     WidgetsBinding.instance.addObserver(this);
-    // _loadIngredients() is now primarily triggered by VisibilityDetector,
-    // but initial loading here doesn't hurt.
+    // Initiales Laden der Zutaten beim Start der Seite
     _loadIngredients();
   }
 
@@ -48,70 +47,71 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       print("IngredientsPage: App came to foreground (resumed).");
+      // Der VisibilityDetector sollte das Laden bei Tab-Wechseln zuverlässig regeln,
+      // aber hier könnte man auch laden, wenn die App aus dem Hintergrund kommt.
+      // _loadIngredients(); // Reaktivieren, wenn auch bei App-Resume aktualisiert werden soll
     }
   }
 
   Future<void> _loadIngredients() async {
     print("IngredientsPage: _loadIngredients is being executed...");
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload(); // Ensure we read the latest data
+    // await prefs.reload(); // <--- DIESE ZEILE WIRD ENTFERNT UND IST JETZT NICHT MEHR NÖTIG FÜR DEN AKTUELLEN ANSATZ
 
     Map<String, int> _decodeMap(String? jsonString) {
       if (jsonString != null) {
         try {
           return Map<String, int>.from(jsonDecode(jsonString));
         } catch (e) {
-          print("IngredientsPage: Error decoding '$jsonString': $e");
+          print("IngredientsPage: Error decoding map for inventory: $e, json: $jsonString");
         }
       }
       return {};
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      print("IngredientsPage: _loadIngredients - Widget not mounted, returning.");
+      return;
+    }
 
+    // Lade die neuesten Daten aus SharedPreferences
     final tempVegetables = _decodeMap(prefs.getString('Vegetables'));
     final tempMain = _decodeMap(prefs.getString('Main Ingredients'));
     final tempSpices = _decodeMap(prefs.getString('Spices'));
     final tempOthers = _decodeMap(prefs.getString('Others'));
 
-    bool changed = false;
-    if (!DeepEquals.mapEquals(_ingredientCountVegetables, tempVegetables)) {
-      _ingredientCountVegetables = tempVegetables;
-      changed = true;
-    }
-    if (!DeepEquals.mapEquals(_ingredientCountMain, tempMain)) {
-      _ingredientCountMain = tempMain;
-      changed = true;
-    }
-    if (!DeepEquals.mapEquals(_ingredientCountSpices, tempSpices)) {
-      _ingredientCountSpices = tempSpices;
-      changed = true;
-    }
-    if (!DeepEquals.mapEquals(_ingredientCountOthers, tempOthers)) {
-      _ingredientCountOthers = tempOthers;
-      changed = true;
-    }
+    // Debug-Ausgaben der geladenen Daten
+    print("--- IngredientsPage: LOADING FROM PREFS ---");
+    print("Loaded Vegetables (from prefs): $tempVegetables");
+    print("Loaded Main Ingredients (from prefs): $tempMain");
+    print("Loaded Spices (from prefs): $tempSpices");
+    print("Loaded Others (from prefs): $tempOthers");
+    print("------------------------------------------");
 
-    if (changed && mounted) {
-      setState(() {
-        print("IngredientsPage: Inventory loaded and State UPDATED.");
-      });
-    } else if (mounted && !changed) {
-      print("IngredientsPage: Inventory loaded, but NO CHANGES detected.");
-    }
+    // Aktualisiere den State innerhalb von setState(), um die UI neu zu rendern.
+    // Dies ist entscheidend, damit Flutter die Änderungen bemerkt und die UI aktualisiert.
+    setState(() {
+      _ingredientCountVegetables = tempVegetables;
+      _ingredientCountMain = tempMain;
+      _ingredientCountSpices = tempSpices;
+      _ingredientCountOthers = tempOthers;
+      print("IngredientsPage: Inventory loaded and State UPDATED.");
+    });
   }
 
   Future<void> _saveIngredients() async {
     final prefs = await SharedPreferences.getInstance();
     Future<void> _encodeAndSet(String key, Map<String, int> map) async {
-      await prefs.setString(key, jsonEncode(map));
+      final jsonString = jsonEncode(map);
+      print("IngredientsPage: Attempting to save '$key': $jsonString"); // DEBUG: Was wird gespeichert
+      await prefs.setString(key, jsonString);
     }
 
     await _encodeAndSet('Vegetables', _ingredientCountVegetables);
     await _encodeAndSet('Main Ingredients', _ingredientCountMain);
     await _encodeAndSet('Spices', _ingredientCountSpices);
     await _encodeAndSet('Others', _ingredientCountOthers);
-    print("IngredientsPage: Inventory saved.");
+    print("IngredientsPage: Inventory save completed.");
   }
 
   void _addIngredient() {
@@ -120,21 +120,18 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
       final String normalizedIngredient = ingredient.toLowerCase();
       final String category = getCategoryForIngredient(normalizedIngredient);
 
-      Map<String, int> targetMap;
-      switch (category) {
-        case "Vegetables": targetMap = _ingredientCountVegetables; break;
-        case "Main Ingredients": targetMap = _ingredientCountMain; break;
-        case "Spices": targetMap = _ingredientCountSpices; break;
-        default: targetMap = _ingredientCountOthers; break;
-      }
-
-      if (mounted) {
-        setState(() {
-          targetMap.update(normalizedIngredient, (count) => count + 1, ifAbsent: () => 1);
-          _controller.clear();
-          FocusScope.of(context).unfocus();
-        });
-      }
+      setState(() {
+        Map<String, int> targetMap;
+        switch (category) {
+          case "Vegetables": targetMap = _ingredientCountVegetables; break;
+          case "Main Ingredients": targetMap = _ingredientCountMain; break;
+          case "Spices": targetMap = _ingredientCountSpices; break;
+          default: targetMap = _ingredientCountOthers; break;
+        }
+        targetMap.update(normalizedIngredient, (count) => count + 1, ifAbsent: () => 1);
+        _controller.clear();
+        FocusScope.of(context).unfocus();
+      });
       _saveIngredients();
 
       if (mounted) {
@@ -154,7 +151,6 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
     }
   }
 
-  // New methods for quantity editing
   void _increaseQuantity(String ingredientKey, String categoryMapKey) {
     if (mounted) {
       setState(() {
@@ -172,9 +168,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
         if (targetMap[ingredientKey] != null && targetMap[ingredientKey]! > 1) {
           targetMap.update(ingredientKey, (count) => count - 1);
         } else {
-          // If quantity is 1 or less, remove element
           targetMap.remove(ingredientKey);
-          // Exit edit mode if all inventories are empty
           if (_editMode && _areAllInventoriesEmpty()) {
             _editMode = false;
           }
@@ -267,10 +261,11 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
   @override
   Widget build(BuildContext context) {
     print("IngredientsPage: build called. _deleteMode: $_deleteMode, _editMode: $_editMode");
-    return VisibilityDetector( // --- HERE VisibilityDetector ---
+    return VisibilityDetector(
       key: _visibilityDetectorKey,
       onVisibilityChanged: (visibilityInfo) {
-        if (mounted && visibilityInfo.visibleFraction > 0.9) { // When more than 90% visible
+        // Lade die Zutaten, wenn die Seite zu mehr als 90% sichtbar ist
+        if (mounted && visibilityInfo.visibleFraction > 0.9) {
           print("IngredientsPage: Page became visible (VisibilityDetector). Loading inventory.");
           _loadIngredients();
         }
@@ -408,13 +403,14 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
 
   Widget _buildCategoryTile(String title, Map<String, int> ingredientMap, String categoryKey) {
     List<String> sortedKeys = ingredientMap.keys.toList()..sort((a, b) => a.compareTo(b));
+    // Ensure the title is displayed correctly, e.g., "Main Ingredients" -> "Main Ingredients"
     String displayTitle = title.replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}').trim();
 
     return ExpansionTile(
       title: Text(displayTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
       initiallyExpanded: ingredientMap.isNotEmpty,
       childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor, // Lighter color
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       collapsedBackgroundColor: Theme.of(context).scaffoldBackgroundColor,
       trailing: _deleteMode && ingredientMap.isNotEmpty
           ? Tooltip(message: "Delete all in '$displayTitle'", child: IconButton(icon: Icon(Icons.delete_sweep_outlined, color: Colors.red.shade300), onPressed: () => _confirmDeleteCategory(categoryKey, ingredientMap, displayTitle) ))
@@ -422,6 +418,7 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
       children: sortedKeys.isEmpty
           ? [const ListTile(dense: true, title: Text('No ingredients in this category.'))]
           : sortedKeys.map((key) {
+        // Convert key to display format (e.g., "apple" -> "Apple")
         String displayKey = key.length > 1 ? '${key[0].toUpperCase()}${key.substring(1)}' : key.toUpperCase();
         return ListTile(
           title: Text(displayKey),
@@ -531,6 +528,10 @@ class _IngredientsPageState extends State<IngredientsPage> with WidgetsBindingOb
   }
 }
 
+// Diese Hilfsklasse dient zum tiefen Vergleich von Maps. Sie ist für die Funktionalität
+// dieser Seite nicht mehr direkt in _loadIngredients() relevant, da setState() jetzt
+// immer aufgerufen wird. Sie kann aber nützlich sein, wenn du prüfen musst,
+// ob sich Maps *inhaltlich* geändert haben, bevor du bestimmte Aktionen ausführst.
 class DeepEquals {
   static bool mapEquals<T, U>(Map<T, U>? a, Map<T, U>? b) {
     if (a == null) return b == null;

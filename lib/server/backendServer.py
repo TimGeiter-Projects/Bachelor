@@ -107,9 +107,21 @@ def find_best_ingredients(required_ingredients, available_ingredients, max_ingre
     required_ingredients = list(set(required_ingredients))
     available_ingredients = list(set([i for i in available_ingredients if i not in required_ingredients]))
     
-    # If no additional ingredients needed or none available
-    if len(required_ingredients) >= max_ingredients or not available_ingredients:
+    # Special case: If no required ingredients, randomly select one from available ingredients
+    if not required_ingredients and available_ingredients:
+        # Randomly select 1 ingredient as starting point
+        random_ingredient = random.choice(available_ingredients)
+        required_ingredients = [random_ingredient]
+        available_ingredients = [i for i in available_ingredients if i != random_ingredient]
+        print(f"No required ingredients provided. Randomly selected: {random_ingredient}")
+    
+    # If still no ingredients or already at max capacity
+    if not required_ingredients or len(required_ingredients) >= max_ingredients:
         return required_ingredients[:max_ingredients]
+    
+    # If no additional ingredients available
+    if not available_ingredients:
+        return required_ingredients
     
     # Calculate embeddings for all ingredients
     embed_required = [(e, get_embedding(e)) for e in required_ingredients]
