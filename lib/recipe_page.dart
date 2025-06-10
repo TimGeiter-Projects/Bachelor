@@ -21,6 +21,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   // Recipe Data & Loading State
   Map<String, dynamic> _recipeData = {};
   bool _isLoading = false;
+  bool _isCurrentRecipeSaved = false; // Status, ob das aktuell angezeigte Rezept gespeichert ist
 
   // Inventory Maps (for Shared Preferences)
   Map<String, int> _vegetablesMap = {};
@@ -38,7 +39,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // _loadInventory(); // Wird jetzt in didChangeDependencies aufgerufen
     _loadSettings();
     log('RecipePage: initState completed.');
   }
@@ -61,8 +61,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Lädt das Inventar jedes Mal neu, wenn die Abhängigkeiten des Widgets geändert werden,
-    // was auch beim Wechseln der Tabs in einem IndexedStack passiert.
     log('RecipePage: didChangeDependencies called, reloading inventory.');
     _loadInventory();
   }
@@ -85,6 +83,9 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     log('RecipePage: _loadInventory started.');
 
+    await prefs.reload(); // Stellt sicher, dass die neuesten Daten vom Speicher geladen werden
+    log('RecipePage: SharedPreferences reloaded.');
+
     Map<String, int> _decodeMap(String? jsonString) {
       if (jsonString != null) {
         try {
@@ -102,13 +103,12 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       return;
     }
 
-    // Temporäre Maps, um die neu geladenen Daten zu halten
     Map<String, int> newVegetablesMap = _decodeMap(prefs.getString('Vegetables'));
     Map<String, int> newMainIngredientsMap = _decodeMap(prefs.getString('Main Ingredients'));
     Map<String, int> newSpicesMap = _decodeMap(prefs.getString('Spices'));
     Map<String, int> newOthersMap = _decodeMap(prefs.getString('Others'));
 
-    log('RecipePage: Loaded inventory data:');
+    log('RecipePage: Data read from prefs AFTER reload (BEFORE setState):');
     log('  Vegetables: $newVegetablesMap');
     log('  Main Ingredients: $newMainIngredientsMap');
     log('  Spices: $newSpicesMap');
@@ -149,6 +149,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       _isLoading = true;
       _recipeData = {};
       _showRecipes = true;
+      _isCurrentRecipeSaved = false; // Setze zurück, da ein neues Rezept generiert wird
     });
     log('RecipePage: Generating recipe...');
 
@@ -175,9 +176,19 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
 
       if (!mounted) return;
 
+      // Generiere eine ID, wenn das Rezept vom API-Dienst keine hat.
+      // Dies ist wichtig, da das API-Modell möglicherweise keine ID zurückgibt,
+      // aber wir eine für die lokale Speicherung benötigen.
+      final String recipeId = recipe['id'] ?? DateTime.now().microsecondsSinceEpoch.toString();
+      final bool saved = await _recipeService.isRecipeSaved(recipeId);
+      log('RecipePage: Is newly generated recipe saved? $saved (ID: $recipeId)');
+
+
       setState(() {
         _recipeData = recipe;
-        log('RecipePage: Recipe generated and data set. Title: ${_recipeData['title']}');
+        _recipeData['id'] = recipeId; // Stelle sicher, dass das Rezept eine ID hat
+        _isCurrentRecipeSaved = saved; // Setze den Status basierend auf der Prüfung
+        log('RecipePage: Recipe generated and data set. Title: ${_recipeData['title']}, IsSaved: $_isCurrentRecipeSaved');
       });
     } catch (e) {
       log('RecipePage: Error generating recipe via RecipeService: $e', error: e);
@@ -189,8 +200,10 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
             'Bitte überprüfen Sie Ihre Internetverbindung und den Hugging Face Space.',
             'Details: ${e.toString()}'
           ],
-          'used_ingredients': []
+          'used_ingredients': [],
+          'id': DateTime.now().microsecondsSinceEpoch.toString(), // Gib dem Fehlerrezept auch eine ID
         };
+        _isCurrentRecipeSaved = false;
       });
     } finally {
       if (mounted) {
@@ -202,48 +215,95 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // --- Rezept Lokal Speichern ---
-  Future<void> _saveCurrentRecipe() async {
+  // --- Rezept Lokal Speichern / Löschen (Toggle-Funktion) ---
+  Future<void> _toggleSaveRecipe() async {
+    // Prüfe, ob überhaupt ein gültiges Rezept angezeigt wird, bevor wir speichern/löschen
     if (_recipeData.isEmpty || _recipeData['title'] == null || _recipeData['ingredients'].isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Kein gültiges Rezept zum Speichern vorhanden.'),
+          content: Text('Kein gültiges Rezept zum Speichern/Löschen vorhanden.'),
           backgroundColor: Colors.red,
         ),
       );
-      log('RecipePage: Attempted to save invalid recipe.');
+      log('RecipePage: Attempted to save/delete invalid recipe.');
       return;
     }
 
-    final newRecipe = Recipe(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      title: _recipeData['title'],
-      ingredients: List<String>.from(_recipeData['ingredients']),
-      directions: List<String>.from(_recipeData['directions']),
-      usedIngredients: List<String>.from(_recipeData['used_ingredients']),
-      savedAt: DateTime.now(),
-    );
+    // Stellen Sie sicher, dass das Rezept eine ID hat, bevor Sie fortfahren
+    final String recipeId = _recipeData['id'] ?? '';
+    if (recipeId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rezept hat keine gültige ID zum Speichern/Löschen.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      log('RecipePage: Recipe has no valid ID for saving/deleting.');
+      return;
+    }
 
-    try {
-      await _recipeService.saveRecipeLocally(newRecipe);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Rezept "${newRecipe.title}" erfolgreich lokal gespeichert!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        log('RecipePage: Recipe "${newRecipe.title}" saved successfully.');
+    if (_isCurrentRecipeSaved) {
+      // Rezept ist bereits gespeichert, also löschen
+      try {
+        await _recipeService.deleteRecipeLocally(recipeId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Rezept "${_recipeData['title']}" erfolgreich lokal gelöscht!'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          setState(() {
+            _isCurrentRecipeSaved = false;
+          });
+          log('RecipePage: Recipe "${_recipeData['title']}" deleted successfully.');
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Fehler beim lokalen Löschen des Rezepts: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          log('RecipePage: Error deleting recipe: $e', error: e);
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Fehler beim lokalen Speichern des Rezepts: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        log('RecipePage: Error saving recipe: $e', error: e);
+    } else {
+      // Rezept ist nicht gespeichert, also speichern
+      final newRecipe = Recipe(
+        id: recipeId, // Verwende die bereits existierende ID aus _recipeData
+        title: _recipeData['title'],
+        ingredients: List<String>.from(_recipeData['ingredients']),
+        directions: List<String>.from(_recipeData['directions']),
+        usedIngredients: List<String>.from(_recipeData['used_ingredients']),
+        savedAt: DateTime.now(),
+      );
+
+      try {
+        await _recipeService.saveRecipeLocally(newRecipe);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Rezept "${newRecipe.title}" erfolgreich lokal gespeichert!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          setState(() {
+            _isCurrentRecipeSaved = true;
+          });
+          log('RecipePage: Recipe "${newRecipe.title}" saved successfully.');
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Fehler beim lokalen Speichern des Rezepts: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          log('RecipePage: Error saving recipe: $e', error: e);
+        }
       }
     }
   }
@@ -254,6 +314,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       _showRecipes = !_showRecipes;
       if (!_showRecipes) {
         _recipeData = {};
+        _isCurrentRecipeSaved = false; // Setze zurück, wenn die Ansicht gewechselt wird
       }
       log('RecipePage: Toggled view. Show recipes: $_showRecipes');
     });
@@ -279,7 +340,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   }
 
   Future<void> _showIngredientDeductionDialog() async {
-    // ... (unveränderter Code für Abzugsdialog)
     if (_recipeData['used_ingredients'] == null) return;
 
     List<String> usedIngredients = List<String>.from(_recipeData['used_ingredients']);
@@ -509,24 +569,27 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         actions: [
-          if (_showRecipes)
+          if (_showRecipes) // Nur anzeigen, wenn ein Rezept angezeigt wird
             IconButton(
               icon: const Icon(Icons.list_alt),
               tooltip: 'Zutaten auswählen',
               onPressed: _toggleView,
             ),
-          if (_showRecipes)
+          if (_showRecipes) // Nur anzeigen, wenn ein Rezept angezeigt wird
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Neues Rezept generieren',
               onPressed: _generateRecipe,
             ),
-          // Speichern-Button in der AppBar
+          // NEU: Herz-Icon als Toggle-Button
           if (_showRecipes && _recipeData.isNotEmpty && _recipeData['title'] != null && !_isLoading)
             IconButton(
-              icon: const Icon(Icons.favorite_border),
-              tooltip: 'Rezept speichern',
-              onPressed: _saveCurrentRecipe,
+              icon: Icon(
+                _isCurrentRecipeSaved ? Icons.favorite : Icons.favorite_border, // Füllen oder umranden
+                color: _isCurrentRecipeSaved ? Colors.red : null, // Rot, wenn gespeichert
+              ),
+              tooltip: _isCurrentRecipeSaved ? 'Rezept entfernen' : 'Rezept speichern',
+              onPressed: _toggleSaveRecipe, // Ruft die Toggle-Funktion auf
             ),
         ],
       ),
@@ -535,8 +598,8 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         recipeData: _recipeData,
         isLoading: _isLoading,
         onDeductIngredients: _showIngredientDeductionDialog,
-        onSaveRecipe: _saveCurrentRecipe, // Callback übergeben
         hasIngredients: _hasIngredients,
+        // onSaveRecipe und isCurrentRecipeSaved werden hier nicht mehr übergeben
       )
           : IngredientSelector(
         vegetablesMap: _vegetablesMap,

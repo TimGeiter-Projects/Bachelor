@@ -37,6 +37,18 @@ class RecipeService {
     }
   }
 
+  // NEUE/FEHLENDE METHODE: Prüft, ob ein Rezept bereits gespeichert ist
+  Future<bool> isRecipeSaved(String recipeId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? recipesJson = prefs.getString(_savedRecipesKey);
+
+    if (recipesJson != null) {
+      final List<dynamic> recipesListJson = jsonDecode(recipesJson);
+      return recipesListJson.any((json) => json['id'] == recipeId);
+    }
+    return false;
+  }
+
   // --- METHODEN FÜR LOKALE SPEICHERUNG SIND HIER DEFINIERT ---
 
   static const String _savedRecipesKey = 'saved_recipes'; // Schlüssel für SharedPreferences

@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'data/recipe.dart'; // Dein Recipe-Modell
 import 'services/recipe_service.dart'; // Dein RecipeService
+import 'dart:developer'; // Für `log` Debug-Ausgaben
 
 class SavedRecipesPage extends StatefulWidget {
   const SavedRecipesPage({super.key});
@@ -9,23 +12,76 @@ class SavedRecipesPage extends StatefulWidget {
   State<SavedRecipesPage> createState() => _SavedRecipesPageState();
 }
 
-class _SavedRecipesPageState extends State<SavedRecipesPage> {
+class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBindingObserver {
   final RecipeService _recipeService = RecipeService();
   late Future<List<Recipe>> _savedRecipesFuture;
   final Map<String, bool> _expandedStates = {}; // Zustand für aufgeklappte/zugeklappte Rezepte
 
+  // Inventar-Maps, um den Kochstatus zu prüfen
+  Map<String, int> _vegetablesMap = {};
+  Map<String, int> _mainIngredientsMap = {};
+  Map<String, int> _spicesMap = {};
+  Map<String, int> _othersMap = {};
+
   @override
   void initState() {
     super.initState();
-    // _loadSavedRecipes(); // Wird jetzt in didChangeDependencies aufgerufen
+    WidgetsBinding.instance.addObserver(this);
+    // _loadSavedRecipes() und _loadInventory() werden jetzt in didChangeDependencies aufgerufen
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      log('SavedRecipesPage: App resumed, reloading recipes and inventory.');
+      _loadInventory(); // Inventar beim Wiederaufnehmen der App neu laden
+      _loadSavedRecipes(); // Gespeicherte Rezepte neu laden
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Lädt die gespeicherten Rezepte jedes Mal neu, wenn die Abhängigkeiten des Widgets geändert werden,
-    // was auch beim Wechseln der Tabs in einem IndexedStack passiert.
-    _loadSavedRecipes();
+    log('SavedRecipesPage: didChangeDependencies called, reloading recipes and inventory.');
+    _loadInventory(); // Lade Inventar zuerst
+    _loadSavedRecipes(); // Lade gespeicherte Rezepte danach
+  }
+
+  // Lade Inventar aus SharedPreferences
+  Future<void> _loadInventory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload(); // Stelle sicher, dass die neuesten Daten geladen werden
+
+    Map<String, int> _decodeMap(String? jsonString) {
+      if (jsonString != null) {
+        try {
+          return Map<String, int>.from(jsonDecode(jsonString));
+        } catch (e) {
+          log('SavedRecipesPage: Error decoding map for inventory: $e, json: $jsonString');
+          return {};
+        }
+      }
+      return {};
+    }
+
+    if (!mounted) {
+      log('SavedRecipesPage: _loadInventory - Widget not mounted, returning.');
+      return;
+    }
+
+    setState(() {
+      _vegetablesMap = _decodeMap(prefs.getString('Vegetables'));
+      _mainIngredientsMap = _decodeMap(prefs.getString('Main Ingredients'));
+      _spicesMap = _decodeMap(prefs.getString('Spices'));
+      _othersMap = _decodeMap(prefs.getString('Others'));
+      log('SavedRecipesPage: Inventory loaded: $_vegetablesMap, $_mainIngredientsMap, $_spicesMap, $_othersMap');
+    });
   }
 
   // Lade Rezepte und aktualisiere den Future
@@ -34,6 +90,41 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> {
       _savedRecipesFuture = _recipeService.getSavedRecipesLocally();
       // Die _expandedStates werden nicht zurückgesetzt, sodass der Aufklappzustand beibehalten wird.
     });
+  }
+
+  // Methode zur Berechnung fehlender Zutaten für ein Rezept (bleibt bestehen und wird in UI genutzt)
+  List<String> _getMissingIngredientsForRecipe(Recipe recipe) {
+    if (recipe.usedIngredients.isEmpty) {
+      return [];
+    }
+
+    // Wandle alle tatsächlich verwendeten Rezeptzutaten in Kleinbuchstaben und trimme sie für den Vergleich
+    final Set<String> recipeUsedIngredientsNormalized = Set<String>.from(
+      recipe.usedIngredients.map((i) => i.toLowerCase().trim()),
+    );
+
+    // Kombiniere alle verfügbaren Inventar-Zutaten (normalisiert)
+    final Set<String> allAvailableInventoryIngredientsNormalized = {
+      ..._vegetablesMap.keys.map((k) => k.toLowerCase().trim()),
+      ..._mainIngredientsMap.keys.map((k) => k.toLowerCase().trim()),
+      ..._spicesMap.keys.map((k) => k.toLowerCase().trim()),
+      ..._othersMap.keys.map((k) => k.toLowerCase().trim()),
+    };
+
+    final List<String> missing = [];
+    for (String ingredient in recipeUsedIngredientsNormalized) {
+      if (!allAvailableInventoryIngredientsNormalized.contains(ingredient)) {
+        if (ingredient.isNotEmpty) {
+          String? originalIngredient = recipe.usedIngredients.firstWhere(
+                (element) => element.toLowerCase().trim() == ingredient,
+            orElse: () => ingredient,
+          );
+          missing.add(originalIngredient);
+        }
+      }
+    }
+    log('SavedRecipesPage: Missing ingredients for "${recipe.title}" (based on used ingredients): $missing');
+    return missing;
   }
 
   Future<void> _showDeleteConfirmationDialog(String recipeId, String recipeTitle) async {
@@ -191,8 +282,9 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> {
             itemCount: recipes.length,
             itemBuilder: (context, index) {
               final recipe = recipes[index];
-              // Zustand für dieses spezifische Rezept abrufen (standardmäßig zugeklappt)
               final bool isExpanded = _expandedStates[recipe.id] ?? false;
+              final List<String> missingIngredients = _getMissingIngredientsForRecipe(recipe);
+              final bool canBeCooked = missingIngredients.isEmpty;
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -201,7 +293,6 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> {
                 child: InkWell( // Macht die gesamte Karte klickbar
                   onTap: () {
                     setState(() {
-                      // Zustand umkehren, um auf- oder zuzuklappen
                       _expandedStates[recipe.id] = !isExpanded;
                     });
                   },
@@ -222,6 +313,7 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> {
                                 ),
                               ),
                             ),
+                            // Kochstatus-Icon und zugehöriger Abstand entfernt
                             // Löschbutton ist immer sichtbar
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
@@ -230,6 +322,19 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> {
                             ),
                           ],
                         ),
+                        // Anzeige der fehlenden Zutaten in Kurzform (bleibt bestehen)
+                        if (!canBeCooked)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              'Fehlende Zutaten: ${missingIngredients.join(', ')}',
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
                         const SizedBox(height: 8),
                         Text(
                           'Gespeichert am: ${recipe.savedAt.toLocal().toString().split('.')[0]}',

@@ -4,15 +4,15 @@ class RecipeDisplay extends StatelessWidget {
   final Map<String, dynamic> recipeData;
   final bool isLoading;
   final VoidCallback onDeductIngredients;
-  final VoidCallback onSaveRecipe; // Callback für Speichern
   final bool hasIngredients;
 
+  // onSaveRecipe und isCurrentRecipeSaved werden hier nicht mehr benötigt
+  // da der Speichern/Löschen-Button in die AppBar der RecipePage verschoben wurde.
   const RecipeDisplay({
     super.key,
     required this.recipeData,
     required this.isLoading,
     required this.onDeductIngredients,
-    required this.onSaveRecipe, // Initialisiere den Callback
     required this.hasIngredients,
   });
 
@@ -91,24 +91,7 @@ class RecipeDisplay extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Speichern Button unter dem Titel
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onSaveRecipe, // Rufe den Speichern-Callback auf
-              icon: const Icon(Icons.favorite),
-              label: const Text(
-                'Rezept speichern',
-                style: TextStyle(fontSize: 16),
-              ),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                backgroundColor: Colors.blue, // Eine andere Farbe
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
+          // Der blaue Speichern-Button wurde hier vollständig entfernt.
 
           const Text(
             "ZUTATEN",
