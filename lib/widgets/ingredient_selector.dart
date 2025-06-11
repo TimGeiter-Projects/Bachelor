@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 class IngredientSelector extends StatefulWidget {
-  final Map<String, int> vegetablesMap;
-  final Map<String, int> mainIngredientsMap;
-  final Map<String, int> spicesMap;
-  final Map<String, int> othersMap;
+  // Angepasst: Maps empfangen jetzt String? (das älteste Datum) als Wert
+  final Map<String, String?> vegetablesMap;
+  final Map<String, String?> mainIngredientsMap;
+  final Map<String, String?> spicesMap;
+  final Map<String, String?> othersMap;
   final Set<String> requiredIngredients;
   final bool autoExpandIngredients;
   final ValueChanged<String> onToggleIngredient;
@@ -41,33 +42,39 @@ class _IngredientSelectorState extends State<IngredientSelector>
   @override
   void initState() {
     super.initState();
-    // Daten beim ersten Laden aktualisieren
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.onRefreshData?.call();
-    });
+    // Die Daten werden nun über didChangeDependencies in der RecipePage aktualisiert.
+    // Eine zusätzliche Aktualisierung hier ist in der Regel nicht nötig,
+    // es sei denn, es gibt einen spezifischen Grund, warum der Selector sich selbst
+    // beim ersten Bauen aktualisieren müsste, unabhängig von der übergeordneten Seite.
+    // widget.onRefreshData?.call(); // Entfernt, da die RecipePage dies steuert.
   }
 
   @override
   void didUpdateWidget(IngredientSelector oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Prüfen ob sich die Daten geändert haben
-    if (_shouldRefreshData(oldWidget)) {
-      widget.onRefreshData?.call();
-    }
+    // Da die RecipePage onRefreshData über didChangeDependencies triggert,
+    // ist diese Logik hier in der Regel nicht mehr notwendig, um doppelte Aufrufe zu vermeiden.
+    // if (_shouldRefreshData(oldWidget)) {
+    //   widget.onRefreshData?.call();
+    // }
   }
 
-  bool _shouldRefreshData(IngredientSelector oldWidget) {
-    return oldWidget.vegetablesMap.length != widget.vegetablesMap.length ||
-        oldWidget.mainIngredientsMap.length != widget.mainIngredientsMap.length ||
-        oldWidget.spicesMap.length != widget.spicesMap.length ||
-        oldWidget.othersMap.length != widget.othersMap.length;
-  }
+  // Diese Methode ist nicht mehr direkt notwendig, da die RecipePage
+  // die Aktualisierung des Inventars nach Änderungen selbst steuert.
+  // bool _shouldRefreshData(IngredientSelector oldWidget) {
+  //   return oldWidget.vegetablesMap.length != widget.vegetablesMap.length ||
+  //       oldWidget.mainIngredientsMap.length != widget.mainIngredientsMap.length ||
+  //       oldWidget.spicesMap.length != widget.spicesMap.length ||
+  //       oldWidget.othersMap.length != widget.othersMap.length;
+  // }
 
-  bool get _hasIngredients =>
-      widget.vegetablesMap.isNotEmpty ||
-          widget.mainIngredientsMap.isNotEmpty ||
-          widget.spicesMap.isNotEmpty ||
-          widget.othersMap.isNotEmpty;
+  bool get _hasIngredients {
+    // Überprüft, ob mindestens eine der Maps Einträge hat (der Wert ist hier ein String? oder null)
+    return widget.vegetablesMap.isNotEmpty ||
+        widget.mainIngredientsMap.isNotEmpty ||
+        widget.spicesMap.isNotEmpty ||
+        widget.othersMap.isNotEmpty;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +85,7 @@ class _IngredientSelectorState extends State<IngredientSelector>
     }
 
     return RefreshIndicator(
+      // onRefresh weiterhin, falls der Nutzer manuell aktualisieren möchte
       onRefresh: () async {
         widget.onRefreshData?.call();
       },
@@ -179,6 +187,7 @@ class _IngredientSelectorState extends State<IngredientSelector>
             const SizedBox(height: 8),
 
             // Ingredient categories
+            // Angepasst: Map-Typ ist jetzt Map<String, String?>
             _buildIngredientCategory(context, "Hauptzutaten", widget.mainIngredientsMap, widget.requiredIngredients, widget.onToggleIngredient),
             _buildIngredientCategory(context, "Gemüse", widget.vegetablesMap, widget.requiredIngredients, widget.onToggleIngredient),
             _buildIngredientCategory(context, "Gewürze", widget.spicesMap, widget.requiredIngredients, widget.onToggleIngredient),
@@ -190,7 +199,8 @@ class _IngredientSelectorState extends State<IngredientSelector>
     );
   }
 
-  Widget _buildIngredientCategory(BuildContext context, String name, Map<String, int> map, Set<String> selected, ValueChanged<String> onToggle) {
+  // Angepasst: Map-Typ ist jetzt Map<String, String?>
+  Widget _buildIngredientCategory(BuildContext context, String name, Map<String, String?> map, Set<String> selected, ValueChanged<String> onToggle) {
     if (map.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -214,9 +224,15 @@ class _IngredientSelectorState extends State<IngredientSelector>
             runSpacing: 8,
             children: map.keys.map((ingredient) {
               final isSelected = selected.contains(ingredient);
+              final oldestDate = map[ingredient]; // Das älteste Datum ist direkt der Wert in der Map
+
+              String labelText = ingredient;
+              if (oldestDate != null && oldestDate.isNotEmpty) {
+                labelText += ' ($oldestDate)'; // Füge das Datum hinzu
+              }
 
               return FilterChip(
-                label: Text(ingredient),
+                label: Text(labelText),
                 selected: isSelected,
                 onSelected: (_) => onToggle(ingredient),
                 selectedColor: Theme.of(context).primaryColor,

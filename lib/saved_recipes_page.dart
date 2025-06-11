@@ -4,6 +4,39 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/recipe.dart'; // Dein Recipe-Modell
 import 'services/recipe_service.dart'; // Dein RecipeService
 import 'dart:developer'; // Für `log` Debug-Ausgaben
+import 'package:intl/intl.dart'; // Benötigt für IngredientEntry, da es Datumswerte dekodiert
+
+// New class to represent an individual ingredient entry with its date
+// Copied from IngredientsPage to ensure compatibility across modules
+class IngredientEntry {
+  final String name;
+  final DateTime dateAdded;
+
+  IngredientEntry({required this.name, required this.dateAdded});
+
+  // Convert an IngredientEntry to a JSON-serializable map
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'dateAdded': dateAdded.toIso8601String(), // Convert DateTime to ISO 8601 string
+    };
+  }
+
+  // Create an IngredientEntry from a JSON map
+  factory IngredientEntry.fromJson(Map<String, dynamic> json) {
+    return IngredientEntry(
+      name: json['name'] as String,
+      dateAdded: DateTime.parse(json['dateAdded'] as String), // Parse ISO 8601 string back to DateTime
+    );
+  }
+
+  // For debugging and comparison
+  @override
+  String toString() {
+    return 'IngredientEntry(name: $name, dateAdded: ${dateAdded.toIso8601String()})';
+  }
+}
+
 
 class SavedRecipesPage extends StatefulWidget {
   const SavedRecipesPage({super.key});
@@ -17,11 +50,11 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBinding
   late Future<List<Recipe>> _savedRecipesFuture;
   final Map<String, bool> _expandedStates = {}; // Zustand für aufgeklappte/zugeklappte Rezepte
 
-  // Inventar-Maps, um den Kochstatus zu prüfen
-  Map<String, int> _vegetablesMap = {};
-  Map<String, int> _mainIngredientsMap = {};
-  Map<String, int> _spicesMap = {};
-  Map<String, int> _othersMap = {};
+  // Inventar-Maps, um den Kochstatus zu prüfen - TYP ANGEDAPT
+  Map<String, List<IngredientEntry>> _vegetablesMap = {};
+  Map<String, List<IngredientEntry>> _mainIngredientsMap = {};
+  Map<String, List<IngredientEntry>> _spicesMap = {};
+  Map<String, List<IngredientEntry>> _othersMap = {};
 
   @override
   void initState() {
@@ -53,15 +86,23 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBinding
     _loadSavedRecipes(); // Lade gespeicherte Rezepte danach
   }
 
-  // Lade Inventar aus SharedPreferences
+  // Lade Inventar aus SharedPreferences - ANGEDAPT FÜR IngredientEntry LIST
   Future<void> _loadInventory() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload(); // Stelle sicher, dass die neuesten Daten geladen werden
 
-    Map<String, int> _decodeMap(String? jsonString) {
-      if (jsonString != null) {
+    // Angepasste _decodeMap, um List<IngredientEntry> zu verarbeiten
+    Map<String, List<IngredientEntry>> _decodeMap(String? jsonString) {
+      if (jsonString != null && jsonString.isNotEmpty) {
         try {
-          return Map<String, int>.from(jsonDecode(jsonString));
+          final Map<String, dynamic> decodedMap = jsonDecode(jsonString);
+          return decodedMap.map((key, value) {
+            final List<dynamic> entryListJson = value as List<dynamic>;
+            final List<IngredientEntry> entries = entryListJson
+                .map((entryJson) => IngredientEntry.fromJson(entryJson as Map<String, dynamic>))
+                .toList();
+            return MapEntry(key, entries);
+          });
         } catch (e) {
           log('SavedRecipesPage: Error decoding map for inventory: $e, json: $jsonString');
           return {};
@@ -92,30 +133,32 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBinding
     });
   }
 
-  // Methode zur Berechnung fehlender Zutaten für ein Rezept (bleibt bestehen und wird in UI genutzt)
+  // Methode zur Berechnung fehlender Zutaten für ein Rezept
   List<String> _getMissingIngredientsForRecipe(Recipe recipe) {
-    if (recipe.usedIngredients.isEmpty) {
+    // PRÜFE GEGEN recipe.usedIngredients wie gewünscht
+    if (recipe.usedIngredients.isEmpty) { // Verwende recipe.usedIngredients
       return [];
     }
 
-    // Wandle alle tatsächlich verwendeten Rezeptzutaten in Kleinbuchstaben und trimme sie für den Vergleich
-    final Set<String> recipeUsedIngredientsNormalized = Set<String>.from(
-      recipe.usedIngredients.map((i) => i.toLowerCase().trim()),
+    // Wandle alle benötigten Rezeptzutaten in Kleinbuchstaben und trimme sie für den Vergleich
+    final Set<String> recipeRequiredIngredientsNormalized = Set<String>.from(
+      recipe.usedIngredients.map((i) => i.toLowerCase().trim()), // Verwende recipe.usedIngredients
     );
 
     // Kombiniere alle verfügbaren Inventar-Zutaten (normalisiert)
+    // Wir prüfen hier nur die Schlüssel, nicht die Anzahl der IngredientEntry-Objekte
     final Set<String> allAvailableInventoryIngredientsNormalized = {
-      ..._vegetablesMap.keys.map((k) => k.toLowerCase().trim()),
-      ..._mainIngredientsMap.keys.map((k) => k.toLowerCase().trim()),
-      ..._spicesMap.keys.map((k) => k.toLowerCase().trim()),
-      ..._othersMap.keys.map((k) => k.toLowerCase().trim()),
+      ..._vegetablesMap.keys.where((k) => (_vegetablesMap[k]?.isNotEmpty ?? false)).map((k) => k.toLowerCase().trim()),
+      ..._mainIngredientsMap.keys.where((k) => (_mainIngredientsMap[k]?.isNotEmpty ?? false)).map((k) => k.toLowerCase().trim()),
+      ..._spicesMap.keys.where((k) => (_spicesMap[k]?.isNotEmpty ?? false)).map((k) => k.toLowerCase().trim()),
+      ..._othersMap.keys.where((k) => (_othersMap[k]?.isNotEmpty ?? false)).map((k) => k.toLowerCase().trim()),
     };
 
     final List<String> missing = [];
-    for (String ingredient in recipeUsedIngredientsNormalized) {
+    for (String ingredient in recipeRequiredIngredientsNormalized) { // Iteriere über die benötigten Zutaten
       if (!allAvailableInventoryIngredientsNormalized.contains(ingredient)) {
         if (ingredient.isNotEmpty) {
-          String? originalIngredient = recipe.usedIngredients.firstWhere(
+          String? originalIngredient = recipe.usedIngredients.firstWhere( // Finde im originalen recipe.usedIngredients
                 (element) => element.toLowerCase().trim() == ingredient,
             orElse: () => ingredient,
           );
@@ -123,6 +166,7 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBinding
         }
       }
     }
+    // Aktualisiere den Log-Nachricht, um die korrekte Quelle anzuzeigen
     log('SavedRecipesPage: Missing ingredients for "${recipe.title}" (based on used ingredients): $missing');
     return missing;
   }
@@ -327,7 +371,7 @@ class _SavedRecipesPageState extends State<SavedRecipesPage> with WidgetsBinding
                           Padding(
                             padding: const EdgeInsets.only(top: 4.0),
                             child: Text(
-                              'Fehlende Zutaten: ${missingIngredients.join(', ')}',
+                              'Fehlende Zutaten: ${missingIngredients.join(', ')}', // Text "Fehlende Zutaten:" hinzugefügt
                               style: const TextStyle(
                                 color: Colors.red,
                                 fontSize: 14,

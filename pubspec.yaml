@@ -34,6 +34,8 @@ dependencies:
   shared_preferences: ^2.0.10
   mobile_scanner: ^3.2.0
   uuid: ^4.0.0  # Oder eine andere aktuelle Version
+  intl: ^0.19.0 # Füge diese Zeile hinzu
+
 
   http: ^1.2.1 # Oder die aktuellste Version verwenden
   # The following adds the Cupertino Icons font to your application.

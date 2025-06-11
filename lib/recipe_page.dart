@@ -4,8 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/recipe_service.dart';
 import 'widgets/ingredient_selector.dart';
 import 'widgets/recipe_display.dart';
-import 'data/recipe.dart'; // Dein Recipe-Modell
-import 'dart:developer'; // Für `log` Debug-Ausgaben
+import 'data/recipe.dart';
+import 'dart:developer';
+import 'package:intl/intl.dart';
+import 'data/IngriedientEntry.dart'; // Wichtig: Neuer Importpfad für IngredientEntry
 
 class RecipePage extends StatefulWidget {
   const RecipePage({super.key});
@@ -21,13 +23,13 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   // Recipe Data & Loading State
   Map<String, dynamic> _recipeData = {};
   bool _isLoading = false;
-  bool _isCurrentRecipeSaved = false; // Status, ob das aktuell angezeigte Rezept gespeichert ist
+  bool _isCurrentRecipeSaved = false;
 
-  // Inventory Maps (for Shared Preferences)
-  Map<String, int> _vegetablesMap = {};
-  Map<String, int> _mainIngredientsMap = {};
-  Map<String, int> _spicesMap = {};
-  Map<String, int> _othersMap = {};
+  // Inventory Maps (for Shared Preferences) - NOW LISTS OF IngredientEntry
+  Map<String, List<IngredientEntry>> _vegetablesMap = {};
+  Map<String, List<IngredientEntry>> _mainIngredientsMap = {};
+  Map<String, List<IngredientEntry>> _spicesMap = {};
+  Map<String, List<IngredientEntry>> _othersMap = {};
 
   // Ingredient Selection State
   Set<String> _requiredIngredients = {};
@@ -54,7 +56,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       log('RecipePage: App resumed, reloading inventory.');
-      _loadInventory(); // Dies ist für den Fall, dass die App aus dem Hintergrund kommt
+      _loadInventory();
     }
   }
 
@@ -83,13 +85,20 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     log('RecipePage: _loadInventory started.');
 
-    await prefs.reload(); // Stellt sicher, dass die neuesten Daten vom Speicher geladen werden
+    await prefs.reload();
     log('RecipePage: SharedPreferences reloaded.');
 
-    Map<String, int> _decodeMap(String? jsonString) {
-      if (jsonString != null) {
+    Map<String, List<IngredientEntry>> _decodeMap(String? jsonString) {
+      if (jsonString != null && jsonString.isNotEmpty) {
         try {
-          return Map<String, int>.from(jsonDecode(jsonString));
+          final Map<String, dynamic> decodedMap = jsonDecode(jsonString);
+          return decodedMap.map((key, value) {
+            final List<dynamic> entryListJson = value as List<dynamic>;
+            final List<IngredientEntry> entries = entryListJson
+                .map((entryJson) => IngredientEntry.fromJson(entryJson as Map<String, dynamic>))
+                .toList();
+            return MapEntry(key, entries);
+          });
         } catch (e) {
           log('RecipePage: Error decoding map for inventory: $e, json: $jsonString');
           return {};
@@ -103,16 +112,16 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       return;
     }
 
-    Map<String, int> newVegetablesMap = _decodeMap(prefs.getString('Vegetables'));
-    Map<String, int> newMainIngredientsMap = _decodeMap(prefs.getString('Main Ingredients'));
-    Map<String, int> newSpicesMap = _decodeMap(prefs.getString('Spices'));
-    Map<String, int> newOthersMap = _decodeMap(prefs.getString('Others'));
+    Map<String, List<IngredientEntry>> newVegetablesMap = _decodeMap(prefs.getString('Vegetables'));
+    Map<String, List<IngredientEntry>> newMainIngredientsMap = _decodeMap(prefs.getString('Main Ingredients'));
+    Map<String, List<IngredientEntry>> newSpicesMap = _decodeMap(prefs.getString('Spices'));
+    Map<String, List<IngredientEntry>> newOthersMap = _decodeMap(prefs.getString('Others'));
 
     log('RecipePage: Data read from prefs AFTER reload (BEFORE setState):');
-    log('  Vegetables: $newVegetablesMap');
-    log('  Main Ingredients: $newMainIngredientsMap');
-    log('  Spices: $newSpicesMap');
-    log('  Others: $newOthersMap');
+    log(' Vegetables: $newVegetablesMap');
+    log(' Main Ingredients: $newMainIngredientsMap');
+    log(' Spices: $newSpicesMap');
+    log(' Others: $newOthersMap');
 
     setState(() {
       _vegetablesMap = newVegetablesMap;
@@ -120,10 +129,10 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       _spicesMap = newSpicesMap;
       _othersMap = newOthersMap;
 
-      _hasIngredients = _vegetablesMap.isNotEmpty ||
-          _mainIngredientsMap.isNotEmpty ||
-          _spicesMap.isNotEmpty ||
-          _othersMap.isNotEmpty;
+      _hasIngredients = _vegetablesMap.values.any((list) => list.isNotEmpty) ||
+          _mainIngredientsMap.values.any((list) => list.isNotEmpty) ||
+          _spicesMap.values.any((list) => list.isNotEmpty) ||
+          _othersMap.values.any((list) => list.isNotEmpty);
 
       _cleanupRequiredIngredients();
       log('RecipePage: _loadInventory setState completed. _hasIngredients: $_hasIngredients');
@@ -141,7 +150,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     log('RecipePage: _cleanupRequiredIngredients called. Required ingredients after cleanup: $_requiredIngredients');
   }
 
-  // --- Rezeptgenerierung (integriert den RecipeService) ---
   Future<void> _generateRecipe() async {
     if (!mounted) return;
 
@@ -149,45 +157,40 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       _isLoading = true;
       _recipeData = {};
       _showRecipes = true;
-      _isCurrentRecipeSaved = false; // Setze zurück, da ein neues Rezept generiert wird
+      _isCurrentRecipeSaved = false;
     });
     log('RecipePage: Generating recipe...');
 
     List<String> required = _requiredIngredients.toList();
-    Set<String> allAvailable = {
-      ..._vegetablesMap.keys,
-      ..._mainIngredientsMap.keys,
-      ..._spicesMap.keys,
-      ..._othersMap.keys
+    // Die availableToExpand wird NICHT MEHR direkt an den Service gesendet.
+    // Stattdessen senden wir die gesamten Inventar-Maps.
+    // Die API muss diese dann intern verarbeiten.
+    Map<String, List<IngredientEntry>> fullInventory = {
+      ..._vegetablesMap,
+      ..._mainIngredientsMap,
+      ..._spicesMap,
+      ..._othersMap,
     };
 
-    List<String> availableToExpand = _autoExpandIngredients
-        ? allAvailable.difference(_requiredIngredients).toList()
-        : [];
-
     try {
-      log('Sending request to RecipeService. Required: $required, Available for expansion: $availableToExpand');
+      log('Sending request to RecipeService. Required: $required, Full Inventory for expansion: $fullInventory');
 
       final recipe = await _recipeService.generateRecipe(
         requiredIngredients: required,
-        availableIngredients: availableToExpand,
-        autoExpandIngredients: _autoExpandIngredients,
+        fullAvailableIngredients: fullInventory, // Senden Sie alle Ihre Inventar-Maps
+        autoExpandIngredients: _autoExpandIngredients, // Kann weiterhin für die API-Logik verwendet werden
       );
 
       if (!mounted) return;
 
-      // Generiere eine ID, wenn das Rezept vom API-Dienst keine hat.
-      // Dies ist wichtig, da das API-Modell möglicherweise keine ID zurückgibt,
-      // aber wir eine für die lokale Speicherung benötigen.
       final String recipeId = recipe['id'] ?? DateTime.now().microsecondsSinceEpoch.toString();
       final bool saved = await _recipeService.isRecipeSaved(recipeId);
       log('RecipePage: Is newly generated recipe saved? $saved (ID: $recipeId)');
 
-
       setState(() {
         _recipeData = recipe;
-        _recipeData['id'] = recipeId; // Stelle sicher, dass das Rezept eine ID hat
-        _isCurrentRecipeSaved = saved; // Setze den Status basierend auf der Prüfung
+        _recipeData['id'] = recipeId;
+        _isCurrentRecipeSaved = saved;
         log('RecipePage: Recipe generated and data set. Title: ${_recipeData['title']}, IsSaved: $_isCurrentRecipeSaved');
       });
     } catch (e) {
@@ -201,7 +204,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
             'Details: ${e.toString()}'
           ],
           'used_ingredients': [],
-          'id': DateTime.now().microsecondsSinceEpoch.toString(), // Gib dem Fehlerrezept auch eine ID
+          'id': DateTime.now().microsecondsSinceEpoch.toString(),
         };
         _isCurrentRecipeSaved = false;
       });
@@ -215,9 +218,7 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // --- Rezept Lokal Speichern / Löschen (Toggle-Funktion) ---
   Future<void> _toggleSaveRecipe() async {
-    // Prüfe, ob überhaupt ein gültiges Rezept angezeigt wird, bevor wir speichern/löschen
     if (_recipeData.isEmpty || _recipeData['title'] == null || _recipeData['ingredients'].isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -229,7 +230,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
       return;
     }
 
-    // Stellen Sie sicher, dass das Rezept eine ID hat, bevor Sie fortfahren
     final String recipeId = _recipeData['id'] ?? '';
     if (recipeId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -243,7 +243,6 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
 
     if (_isCurrentRecipeSaved) {
-      // Rezept ist bereits gespeichert, also löschen
       try {
         await _recipeService.deleteRecipeLocally(recipeId);
         if (mounted) {
@@ -270,9 +269,8 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         }
       }
     } else {
-      // Rezept ist nicht gespeichert, also speichern
       final newRecipe = Recipe(
-        id: recipeId, // Verwende die bereits existierende ID aus _recipeData
+        id: recipeId,
         title: _recipeData['title'],
         ingredients: List<String>.from(_recipeData['ingredients']),
         directions: List<String>.from(_recipeData['directions']),
@@ -308,13 +306,12 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
     }
   }
 
-  // --- UI-Steuerung (unverändert, außer hinzugefügte Logs) ---
   void _toggleView() {
     setState(() {
       _showRecipes = !_showRecipes;
       if (!_showRecipes) {
         _recipeData = {};
-        _isCurrentRecipeSaved = false; // Setze zurück, wenn die Ansicht gewechselt wird
+        _isCurrentRecipeSaved = false;
       }
       log('RecipePage: Toggled view. Show recipes: $_showRecipes');
     });
@@ -474,13 +471,13 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   int _getIngredientAmount(String ingredient, String category) {
     switch (category) {
       case 'Vegetables':
-        return _vegetablesMap[ingredient] ?? 0;
+        return _vegetablesMap[ingredient]?.length ?? 0;
       case 'Main Ingredients':
-        return _mainIngredientsMap[ingredient] ?? 0;
+        return _mainIngredientsMap[ingredient]?.length ?? 0;
       case 'Spices':
-        return _spicesMap[ingredient] ?? 0;
+        return _spicesMap[ingredient]?.length ?? 0;
       case 'Others':
-        return _othersMap[ingredient] ?? 0;
+        return _othersMap[ingredient]?.length ?? 0;
       default:
         return 0;
     }
@@ -489,65 +486,59 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
   Future<void> _deductIngredientsFromInventory(Map<String, int> deductions) async {
     final prefs = await SharedPreferences.getInstance();
 
-    Map<String, int> newVegetables = Map.from(_vegetablesMap);
-    Map<String, int> newMainIngredients = Map.from(_mainIngredientsMap);
-    Map<String, int> newSpices = Map.from(_spicesMap);
-    Map<String, int> newOthers = Map.from(_othersMap);
+    Map<String, List<IngredientEntry>> newVegetables = Map.from(_vegetablesMap);
+    Map<String, List<IngredientEntry>> newMainIngredients = Map.from(_mainIngredientsMap);
+    Map<String, List<IngredientEntry>> newSpices = Map.from(_spicesMap);
+    Map<String, List<IngredientEntry>> newOthers = Map.from(_othersMap);
 
     for (String ingredient in deductions.keys) {
-      int amount = deductions[ingredient] ?? 0;
-      if (amount <= 0) continue;
+      int amountToDeduct = deductions[ingredient] ?? 0;
+      if (amountToDeduct <= 0) continue;
 
       String? category = _findIngredientCategory(ingredient);
       if (category == null) continue;
 
+      Map<String, List<IngredientEntry>> targetMap;
       switch (category) {
         case 'Vegetables':
-          int current = newVegetables[ingredient] ?? 0;
-          int newAmount = current - amount;
-          if (newAmount <= 0) {
-            newVegetables.remove(ingredient);
-          } else {
-            newVegetables[ingredient] = newAmount;
-          }
+          targetMap = newVegetables;
           break;
         case 'Main Ingredients':
-          int current = newMainIngredients[ingredient] ?? 0;
-          int newAmount = current - amount;
-          if (newAmount <= 0) {
-            newMainIngredients.remove(ingredient);
-          } else {
-            newMainIngredients[ingredient] = newAmount;
-          }
+          targetMap = newMainIngredients;
           break;
         case 'Spices':
-          int current = newSpices[ingredient] ?? 0;
-          int newAmount = current - amount;
-          if (newAmount <= 0) {
-            newSpices.remove(ingredient);
-          } else {
-            newSpices[ingredient] = newAmount;
-          }
+          targetMap = newSpices;
           break;
         case 'Others':
-          int current = newOthers[ingredient] ?? 0;
-          int newAmount = current - amount;
-          if (newAmount <= 0) {
-            newOthers.remove(ingredient);
-          } else {
-            newOthers[ingredient] = newAmount;
-          }
+          targetMap = newOthers;
           break;
+        default:
+          continue;
+      }
+
+      List<IngredientEntry>? currentEntries = targetMap[ingredient];
+      if (currentEntries != null && currentEntries.isNotEmpty) {
+        currentEntries.sort((a, b) => b.dateAdded.compareTo(a.dateAdded));
+
+        for (int i = 0; i < amountToDeduct && currentEntries.isNotEmpty; i++) {
+          currentEntries.removeAt(0);
+        }
+
+        if (currentEntries.isEmpty) {
+          targetMap.remove(ingredient);
+        } else {
+          targetMap[ingredient] = currentEntries;
+        }
       }
     }
 
-    await prefs.setString('Vegetables', jsonEncode(newVegetables));
-    await prefs.setString('Main Ingredients', jsonEncode(newMainIngredients));
-    await prefs.setString('Spices', jsonEncode(newSpices));
-    await prefs.setString('Others', jsonEncode(newOthers));
-    log('RecipePage: Inventory deducted and saved.');
+    await prefs.setString('Vegetables', jsonEncode(newVegetables.map((k, v) => MapEntry(k, v.map((e) => e.toJson()).toList()))));
+    await prefs.setString('Main Ingredients', jsonEncode(newMainIngredients.map((k, v) => MapEntry(k, v.map((e) => e.toJson()).toList()))));
+    await prefs.setString('Spices', jsonEncode(newSpices.map((k, v) => MapEntry(k, v.map((e) => e.toJson()).toList()))));
+    await prefs.setString('Others', jsonEncode(newOthers.map((k, v) => MapEntry(k, v.map((e) => e.toJson()).toList()))));
+    log('RecipePage: Inventory deducted and saved in new format.');
 
-    await _loadInventory(); // Wichtig: Nach dem Abziehen das Inventar neu laden, damit die UI aktualisiert wird.
+    await _loadInventory();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -569,27 +560,26 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         actions: [
-          if (_showRecipes) // Nur anzeigen, wenn ein Rezept angezeigt wird
+          if (_showRecipes)
             IconButton(
               icon: const Icon(Icons.list_alt),
               tooltip: 'Zutaten auswählen',
               onPressed: _toggleView,
             ),
-          if (_showRecipes) // Nur anzeigen, wenn ein Rezept angezeigt wird
+          if (_showRecipes)
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Neues Rezept generieren',
               onPressed: _generateRecipe,
             ),
-          // NEU: Herz-Icon als Toggle-Button
           if (_showRecipes && _recipeData.isNotEmpty && _recipeData['title'] != null && !_isLoading)
             IconButton(
               icon: Icon(
-                _isCurrentRecipeSaved ? Icons.favorite : Icons.favorite_border, // Füllen oder umranden
-                color: _isCurrentRecipeSaved ? Colors.red : null, // Rot, wenn gespeichert
+                _isCurrentRecipeSaved ? Icons.favorite : Icons.favorite_border,
+                color: _isCurrentRecipeSaved ? Colors.red : null,
               ),
               tooltip: _isCurrentRecipeSaved ? 'Rezept entfernen' : 'Rezept speichern',
-              onPressed: _toggleSaveRecipe, // Ruft die Toggle-Funktion auf
+              onPressed: _toggleSaveRecipe,
             ),
         ],
       ),
@@ -599,13 +589,24 @@ class _RecipePageState extends State<RecipePage> with WidgetsBindingObserver {
         isLoading: _isLoading,
         onDeductIngredients: _showIngredientDeductionDialog,
         hasIngredients: _hasIngredients,
-        // onSaveRecipe und isCurrentRecipeSaved werden hier nicht mehr übergeben
       )
           : IngredientSelector(
-        vegetablesMap: _vegetablesMap,
-        mainIngredientsMap: _mainIngredientsMap,
-        spicesMap: _spicesMap,
-        othersMap: _othersMap,
+        vegetablesMap: _vegetablesMap.map((key, entries) {
+          entries.sort((a, b) => a.dateAdded.compareTo(b.dateAdded));
+          return MapEntry(key, entries.isNotEmpty ? DateFormat('MM/dd/yyyy').format(entries.first.dateAdded) : null);
+        }),
+        mainIngredientsMap: _mainIngredientsMap.map((key, entries) {
+          entries.sort((a, b) => a.dateAdded.compareTo(b.dateAdded));
+          return MapEntry(key, entries.isNotEmpty ? DateFormat('MM/dd/yyyy').format(entries.first.dateAdded) : null);
+        }),
+        spicesMap: _spicesMap.map((key, entries) {
+          entries.sort((a, b) => a.dateAdded.compareTo(b.dateAdded));
+          return MapEntry(key, entries.isNotEmpty ? DateFormat('MM/dd/yyyy').format(entries.first.dateAdded) : null);
+        }),
+        othersMap: _othersMap.map((key, entries) {
+          entries.sort((a, b) => a.dateAdded.compareTo(b.dateAdded));
+          return MapEntry(key, entries.isNotEmpty ? DateFormat('MM/dd/yyyy').format(entries.first.dateAdded) : null);
+        }),
         requiredIngredients: _requiredIngredients,
         autoExpandIngredients: _autoExpandIngredients,
         onToggleIngredient: _toggleIngredient,
